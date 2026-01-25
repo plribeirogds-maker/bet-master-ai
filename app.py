@@ -183,7 +183,7 @@ if st.session_state['calculou']:
         "Resultado": [tc, "Empate", tf],
         "Probabilidade": [prob_h, prob_d, prob_a]
     })
-    st.bar_chart(chart_data, x="Resultado", y="Probabilidade", color=["#152430"])
+    st.bar_chart(chart_data, x="Resultado", y="Probabilidade", color=["#D42424"])
     st.caption(f"Placar Esperado: {tc} {l_casa:.2f} x {l_fora:.2f} {tf}")
 
     st.write("---")
