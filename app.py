@@ -6,7 +6,7 @@ from sklearn.ensemble import RandomForestClassifier
 import os
 
 # ==============================================================================
-# CONFIGURAÇÃO DA PÁGINA (Título, Ícone, Layout)
+# CONFIGURAÇÃO DA PÁGINA
 # ==============================================================================
 st.set_page_config(
     page_title="Bet Master AI",
@@ -14,7 +14,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# Título Bonito e Estilizado
 st.title("🔮 Bet Master AI")
 st.write("---")
 
@@ -22,16 +21,13 @@ st.write("---")
 # CARREGAMENTO E INTELIGÊNCIA (CACHE)
 # ==============================================================================
 
-# O @st.cache_data faz com que o Python leia o arquivo SÓ UMA VEZ.
-# O app fica super rápido.
 @st.cache_data
 def carregar_dados():
     diretorio = os.path.dirname(os.path.abspath(__file__))
-    caminho = os.path.join(diretorio, 'BRA.csv')
+    caminho = os.path.join(diretorio, 'Jogos.csv.csv')
     
     try:
         df = pd.read_csv(caminho, sep=';', decimal=',')
-        # Limpezas
         df = df.dropna(subset=['HG', 'AG', 'Res', 'Home', 'Away'])
         df = df.rename(columns={
             'HG': 'FTHG', 'AG': 'FTAG', 
@@ -47,13 +43,11 @@ def carregar_dados():
 df = carregar_dados()
 
 if df is None:
-    st.error("ERRO: O arquivo 'BRA.csv' não foi encontrado na pasta!")
-    st.stop() # Para o código aqui se não tiver arquivo
+    st.error("ERRO: O arquivo 'Jogos.csv.csv' não foi encontrado na pasta!")
+    st.stop()
 
-# Treinamento da IA (Também em cache para não treinar toda hora)
 @st.cache_resource
 def treinar_ia(df):
-    # Prepara dados (feature engineering igual fizemos antes)
     df_ml = df.copy()
     df_ml['H_Pts'] = np.where(df_ml['FTR'] == 'H', 3, np.where(df_ml['FTR'] == 'D', 1, 0))
     df_ml['A_Pts'] = np.where(df_ml['FTR'] == 'A', 3, np.where(df_ml['FTR'] == 'D', 1, 0))
@@ -93,36 +87,36 @@ def treinar_ia(df):
 modelo_ia, features_ia = treinar_ia(df)
 
 # ==============================================================================
-# INTERFACE DO USUÁRIO (O APP)
+# INTERFACE DO USUÁRIO
 # ==============================================================================
 
-# Barra lateral para informações
 with st.sidebar:
     st.header("⚙️ Configurações")
-    st.info(f"Base de Dados: {len(df)} jogos carregados.")
+    st.info(f"Base de Dados: {len(df)} jogos.")
     st.markdown("Desenvolvido com Python & Streamlit")
 
-# Seleção de Times (DROPDOWN - Muito melhor que digitar!)
 lista_times = sorted(df['HomeTeam'].unique())
 
 col1, col2 = st.columns(2)
 with col1:
-    time_casa = st.selectbox("Time da Casa (Mandante)", lista_times, index=0)
+    time_casa = st.selectbox("Time da Casa", lista_times, index=0)
 with col2:
-    # Tenta selecionar um rival diferente automaticamente para não ficar igual
     index_fora = 1 if len(lista_times) > 1 else 0
     time_fora = st.selectbox("Time Visitante", lista_times, index=index_fora)
 
-# Botão Principal
+# --- A MÁGICA DO SESSION STATE (MEMÓRIA) ---
+# Se ainda não existe memória de cálculo, cria vazia
+if 'calculou' not in st.session_state:
+    st.session_state['calculou'] = False
+
+# Botão de Calcular
 if st.button("CALCULAR ODDS 🎲", type="primary", use_container_width=True):
-    
     if time_casa == time_fora:
         st.error("Escolha times diferentes!")
     else:
-        # --- LÓGICA POISSON ---
+        # Realiza os cálculos
         media_gols_casa = df['FTHG'].mean()
         media_gols_fora = df['FTAG'].mean()
-        
         home_stats = df.groupby('HomeTeam')[['FTHG', 'FTAG']].mean()
         away_stats = df.groupby('AwayTeam')[['FTHG', 'FTAG']].mean()
 
@@ -130,15 +124,11 @@ if st.button("CALCULAR ODDS 🎲", type="primary", use_container_width=True):
             if lado == 'Home':
                 stats = home_stats
                 if time in stats.index:
-                    att = stats.loc[time, 'FTHG'] / media_gols_casa
-                    defi = stats.loc[time, 'FTAG'] / media_gols_fora
-                    return att, defi
+                    return stats.loc[time, 'FTHG']/media_gols_casa, stats.loc[time, 'FTAG']/media_gols_fora
             else:
                 stats = away_stats
                 if time in stats.index:
-                    att = stats.loc[time, 'FTAG'] / media_gols_fora
-                    defi = stats.loc[time, 'FTHG'] / media_gols_casa
-                    return att, defi
+                    return stats.loc[time, 'FTAG']/media_gols_fora, stats.loc[time, 'FTHG']/media_gols_casa
             return 1.0, 1.0
 
         hc_att, hc_def = get_force(time_casa, 'Home')
@@ -154,35 +144,58 @@ if st.button("CALCULAR ODDS 🎲", type="primary", use_container_width=True):
                 if x > y: prob_h += p
                 elif x == y: prob_d += p
                 else: prob_a += p
-
-        # --- EXIBIÇÃO DOS RESULTADOS ---
-        st.subheader("📊 Análise Estatística (Histórico)")
         
-        # Colunas de Probabilidade (Métricas Grandes)
-        c1, c2, c3 = st.columns(3)
-        c1.metric(label=f"Vitória {time_casa}", value=f"{prob_h*100:.1f}%", delta=f"Odd: {1/prob_h:.2f}")
-        c2.metric(label="Empate", value=f"{prob_d*100:.1f}%", delta=f"Odd: {1/prob_d:.2f}")
-        c3.metric(label=f"Vitória {time_fora}", value=f"{prob_a*100:.1f}%", delta=f"Odd: {1/prob_a:.2f}")
+        # SALVA TUDO NA MEMÓRIA (SESSION STATE)
+        st.session_state['calculou'] = True
+        st.session_state['prob_h'] = prob_h
+        st.session_state['prob_d'] = prob_d
+        st.session_state['prob_a'] = prob_a
+        st.session_state['lambda_casa'] = lambda_casa
+        st.session_state['lambda_fora'] = lambda_fora
+        st.session_state['time_casa_calc'] = time_casa # Salva os times calculados
+        st.session_state['time_fora_calc'] = time_fora
 
-        # Gráfico de Barras
-        chart_data = pd.DataFrame({
-            "Resultado": [time_casa, "Empate", time_fora],
-            "Probabilidade": [prob_h, prob_d, prob_a]
-        })
-        st.bar_chart(chart_data, x="Resultado", y="Probabilidade", color=["#1f77b4"])
-        
-        st.caption(f"Placar Esperado: {time_casa} {lambda_casa:.2f} x {lambda_fora:.2f} {time_fora}")
+# --- EXIBIÇÃO DOS RESULTADOS (FORA DO BOTÃO) ---
+# Verifica se já existe um cálculo na memória e se os times não mudaram
+if st.session_state['calculou']:
+    
+    # Recupera os dados da memória
+    prob_h = st.session_state['prob_h']
+    prob_d = st.session_state['prob_d']
+    prob_a = st.session_state['prob_a']
+    l_casa = st.session_state['lambda_casa']
+    l_fora = st.session_state['lambda_fora']
+    tc = st.session_state['time_casa_calc']
+    tf = st.session_state['time_fora_calc']
+
+    # Aviso visual se o usuário mudou o time no menu mas não recalculou
+    if tc != time_casa or tf != time_fora:
+        st.warning("⚠️ Você mudou os times! Clique em 'CALCULAR ODDS' para atualizar.")
+    
+    st.subheader("📊 Análise Estatística (Histórico)")
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric(label=f"Vitória {tc}", value=f"{prob_h*100:.1f}%", delta=f"Odd: {1/prob_h:.2f}")
+    c2.metric(label="Empate", value=f"{prob_d*100:.1f}%", delta=f"Odd: {1/prob_d:.2f}")
+    c3.metric(label=f"Vitória {tf}", value=f"{prob_a*100:.1f}%", delta=f"Odd: {1/prob_a:.2f}")
+
+    chart_data = pd.DataFrame({
+        "Resultado": [tc, "Empate", tf],
+        "Probabilidade": [prob_h, prob_d, prob_a]
+    })
+    st.bar_chart(chart_data, x="Resultado", y="Probabilidade", color=["#1f77b4"])
+    st.caption(f"Placar Esperado: {tc} {l_casa:.2f} x {l_fora:.2f} {tf}")
+
+    st.write("---")
 
 # ==============================================================================
-# ÁREA DA INTELIGÊNCIA ARTIFICIAL (Expander para não poluir)
+# ÁREA DA INTELIGÊNCIA ARTIFICIAL
 # ==============================================================================
 
-st.write("---")
-with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes)"):
-    st.write("Insira as médias dos últimos 5 jogos (Geral) para ver a opinião da IA.")
+with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes)", expanded=True):
+    st.write("Insira as médias dos últimos 5 jogos (Geral).")
     
     col_ia1, col_ia2 = st.columns(2)
-    
     with col_ia1:
         st.markdown(f"**{time_casa}**")
         hp = st.number_input("Pontos (Média)", 0.0, 3.0, 1.5, step=0.1, key='hp')
@@ -199,8 +212,6 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes)"):
         input_data = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
         probs = modelo_ia.predict_proba(input_data)[0]
         classes = modelo_ia.classes_
-        
-        # Mapeamento seguro das classes
         mapa = {cls: idx for idx, cls in enumerate(classes)}
         
         p_casa = probs[mapa['H']]
@@ -209,7 +220,6 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes)"):
         
         st.success(f"🧠 Previsão da IA:")
         
-        # Mostra quem é o favorito da IA com destaque
         if p_casa > p_fora and p_casa > p_emp:
             st.write(f"O modelo aponta favoritismo para o **{time_casa}** ({p_casa*100:.1f}%)")
         elif p_fora > p_casa and p_fora > p_emp:
