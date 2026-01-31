@@ -24,7 +24,7 @@ st.write("---")
 @st.cache_data
 def carregar_dados():
     diretorio = os.path.dirname(os.path.abspath(__file__))
-    caminho = os.path.join(diretorio, 'Jogos.csv.csv')
+    caminho = os.path.join(diretorio, 'BRA.csv')
     
     try:
         df = pd.read_csv(caminho, sep=';', decimal=',')
@@ -43,7 +43,7 @@ def carregar_dados():
 df = carregar_dados()
 
 if df is None:
-    st.error("ERRO: O arquivo 'Jogos.csv.csv' não foi encontrado na pasta!")
+    st.error("ERRO: O arquivo 'BRA.csv' não foi encontrado na pasta!")
     st.stop()
 
 @st.cache_resource
@@ -96,7 +96,7 @@ with st.sidebar:
     # --- NOVIDADE: SELETOR DE MODELO MATEMÁTICO ---
     metodo_poisson = st.radio(
         "Modelo Matemático (Poisson)",
-        ["Clássico (Multiplicativo)", "Aritmético (Luiz Ramos)"],
+        ["Clássico (Multiplicativo)", "Aritmético (Paulo Ribeiro)"],
         help="Clássico: Usa Força x Média da Liga.\nAritmético: Usa (Média Feitos + Média Sofridos) / 2."
     )
     
@@ -149,7 +149,7 @@ if st.button("CALCULAR ODDS 🎲", type="primary", use_container_width=True):
             lambda_fora = aw_att * hc_def * media_gols_fora
 
         else:
-            # --- NOVO MÉTODO: ARITMÉTICO (LUIZ RAMOS) ---
+            # --- NOVO MÉTODO: ARITMÉTICO (PAULO RIBEIRO) ---
             # Fórmula: (Média Gols Feitos Mandante + Média Gols Sofridos Visitante) / 2
             
             # Gols Esperados Casa
