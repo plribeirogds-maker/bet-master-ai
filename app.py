@@ -87,7 +87,7 @@ def treinar_ia(df):
 modelo_ia, features_ia = treinar_ia(df)
 
 # ==============================================================================
-# INTERFACE E LÓGICA
+# INTERFACE E LÓGICA (POISSON + KELLY)
 # ==============================================================================
 
 with st.sidebar:
@@ -186,24 +186,55 @@ if st.session_state['calculou']:
     kd = calcular_kelly(pd_prob, odd_site_d) * fracao_kelly
     ka = calcular_kelly(pa, odd_site_a) * fracao_kelly
     
-    # Mostra recomendação
     cols_res = st.columns(3)
-    if kh > 0:
-        cols_res[0].success(f"APOSTE R$ {kh*banca_total:.2f} \n({kh*100:.1f}% da Banca)")
-    else:
-        cols_res[0].error("Sem Valor")
+    if kh > 0: cols_res[0].success(f"APOSTE R$ {kh*banca_total:.2f} \n({kh*100:.1f}% da Banca)")
+    else: cols_res[0].error("Sem Valor")
         
-    if kd > 0:
-        cols_res[1].success(f"APOSTE R$ {kd*banca_total:.2f} \n({kd*100:.1f}% da Banca)")
-    else:
-        cols_res[1].error("Sem Valor")
+    if kd > 0: cols_res[1].success(f"APOSTE R$ {kd*banca_total:.2f} \n({kd*100:.1f}% da Banca)")
+    else: cols_res[1].error("Sem Valor")
         
-    if ka > 0:
-        cols_res[2].success(f"APOSTE R$ {ka*banca_total:.2f} \n({ka*100:.1f}% da Banca)")
-    else:
-        cols_res[2].error("Sem Valor")
+    if ka > 0: cols_res[2].success(f"APOSTE R$ {ka*banca_total:.2f} \n({ka*100:.1f}% da Banca)")
+    else: cols_res[2].error("Sem Valor")
 
-# IA Abaixo (Mantida igual, só ocultei aqui pra não ficar gigante, mas você mantém no código)
-with st.expander("🤖 Refinar com Inteligência Artificial"):
-    # ... (Copie a parte da IA do código anterior aqui, se quiser manter) ...
-    st.write("A IA é uma ferramenta complementar. Use o Kelly acima para definir o valor.")
+# ==============================================================================
+# ÁREA DA INTELIGÊNCIA ARTIFICIAL (AGORA COMPLETA)
+# ==============================================================================
+
+with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes)", expanded=True):
+    st.write("Insira as médias dos últimos 5 jogos (Geral) para ver a opinião da IA.")
+    st.info("Dica: Use estatísticas de qualquer campeonato (Estadual, Libertadores) para medir o momento!")
+    
+    col_ia1, col_ia2 = st.columns(2)
+    with col_ia1:
+        st.markdown(f"**{time_casa}**")
+        hp = st.number_input("Pontos (Média)", 0.0, 3.0, 1.5, step=0.1, key='hp')
+        hgs = st.number_input("Gols Feitos (Média)", 0.0, 5.0, 1.2, step=0.1, key='hgs')
+        hgc = st.number_input("Gols Sofridos (Média)", 0.0, 5.0, 1.0, step=0.1, key='hgc')
+
+    with col_ia2:
+        st.markdown(f"**{time_fora}**")
+        ap = st.number_input("Pontos (Média)", 0.0, 3.0, 1.5, step=0.1, key='ap')
+        ags = st.number_input("Gols Feitos (Média)", 0.0, 5.0, 1.2, step=0.1, key='ags')
+        agc = st.number_input("Gols Sofridos (Média)", 0.0, 5.0, 1.0, step=0.1, key='agc')
+        
+    if st.button("Consultar o Robô 🤖"):
+        input_data = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
+        probs = modelo_ia.predict_proba(input_data)[0]
+        classes = modelo_ia.classes_
+        mapa = {cls: idx for idx, cls in enumerate(classes)}
+        
+        p_casa = probs[mapa['H']]
+        p_emp = probs[mapa['D']]
+        p_fora = probs[mapa['A']]
+        
+        st.success(f"🧠 Previsão da IA:")
+        
+        if p_casa > p_fora and p_casa > p_emp:
+            st.write(f"O modelo aponta favoritismo para o **{time_casa}** ({p_casa*100:.1f}%)")
+        elif p_fora > p_casa and p_fora > p_emp:
+            st.write(f"O modelo aponta favoritismo para o **{time_fora}** ({p_fora*100:.1f}%)")
+        else:
+            st.warning(f"O modelo prevê um jogo muito equilibrado/empate.")
+            
+        st.progress(int(p_casa*100), text=f"Força {time_casa}")
+        st.progress(int(p_fora*100), text=f"Força {time_fora}")
