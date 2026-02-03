@@ -24,7 +24,7 @@ st.write("---")
 @st.cache_data
 def carregar_dados():
     diretorio = os.path.dirname(os.path.abspath(__file__))
-    caminho = os.path.join(diretorio, 'BRA.csv')
+    caminho = os.path.join(diretorio, 'Jogos.csv.csv')
     
     try:
         df = pd.read_csv(caminho, sep=';', decimal=',')
@@ -43,7 +43,7 @@ def carregar_dados():
 df = carregar_dados()
 
 if df is None:
-    st.error("ERRO: O arquivo 'BRA.csv' não foi encontrado na pasta!")
+    st.error("ERRO: O arquivo 'Jogos.csv.csv' não foi encontrado na pasta!")
     st.stop()
 
 @st.cache_resource
@@ -86,8 +86,16 @@ def treinar_ia(df):
 
 modelo_ia, features_ia = treinar_ia(df)
 
+# Função auxiliar Kelly (Reutilizável)
+def calcular_kelly(prob_real, odd_site):
+    if odd_site <= 1: return 0
+    b = odd_site - 1
+    q = 1 - prob_real
+    f = (b * prob_real - q) / b
+    return max(f, 0)
+
 # ==============================================================================
-# INTERFACE E LÓGICA (POISSON + KELLY)
+# INTERFACE E LÓGICA
 # ==============================================================================
 
 with st.sidebar:
@@ -97,8 +105,7 @@ with st.sidebar:
     st.write("---")
     st.header("💰 Gestão de Banca")
     banca_total = st.number_input("Sua Banca Total (R$)", value=1000.0, step=100.0)
-    fracao_kelly = st.slider("Agressividade (Kelly Fracionário)", 0.01, 1.0, 0.10, 0.01, 
-                             help="Recomendado: 0.05 a 0.10 (5% a 10% do Kelly)")
+    fracao_kelly = st.slider("Agressividade (Kelly Fracionário)", 0.01, 1.0, 0.10, 0.01)
 
 lista_times = sorted(df['HomeTeam'].unique())
 
@@ -106,13 +113,21 @@ col1, col2 = st.columns(2)
 with col1: time_casa = st.selectbox("Time da Casa", lista_times, index=0)
 with col2: time_fora = st.selectbox("Time Visitante", lista_times, index=1 if len(lista_times)>1 else 0)
 
+# Inputs de ODDS (Agora globais para usar no Poisson e na IA)
+st.write("---")
+st.caption("Insira as Odds da Bet365 para calcular o valor da aposta:")
+k1, k2, k3 = st.columns(3)
+with k1: odd_site_h = st.number_input(f"Odd Vitória {time_casa}", 1.0, 20.0, 2.0, step=0.01)
+with k2: odd_site_d = st.number_input(f"Odd Empate", 1.0, 20.0, 3.0, step=0.01)
+with k3: odd_site_a = st.number_input(f"Odd Vitória {time_fora}", 1.0, 20.0, 4.0, step=0.01)
+
 if 'calculou' not in st.session_state: st.session_state['calculou'] = False
 
-if st.button("CALCULAR ODDS 🎲", type="primary", use_container_width=True):
+if st.button("CALCULAR ODDS (POISSON) 🎲", type="primary", use_container_width=True):
     if time_casa == time_fora:
         st.error("Escolha times diferentes!")
     else:
-        # Prepara Estatísticas
+        # Lógica Poisson
         media_gols_casa = df['FTHG'].mean()
         media_gols_fora = df['FTAG'].mean()
         home_stats = df.groupby('HomeTeam')[['FTHG', 'FTAG']].mean()
@@ -157,52 +172,33 @@ if st.session_state['calculou']:
     tc, tf = st.session_state['tc'], st.session_state['tf']
     ph, pd_prob, pa = st.session_state['prob_h'], st.session_state['prob_d'], st.session_state['prob_a']
     
-    st.subheader(f"📊 Probabilidades ({st.session_state['metodo']})")
+    st.subheader(f"📊 Probabilidades Históricas ({st.session_state['metodo']})")
     c1, c2, c3 = st.columns(3)
     c1.metric(f"Vitória {tc}", f"{ph*100:.1f}%", f"Odd Justa: {1/ph:.2f}")
     c2.metric("Empate", f"{pd_prob*100:.1f}%", f"Odd Justa: {1/pd_prob:.2f}")
     c3.metric(f"Vitória {tf}", f"{pa*100:.1f}%", f"Odd Justa: {1/pa:.2f}")
     
-    # --- ÁREA DE VALOR ESPERADO (KELLY) ---
-    st.write("---")
-    st.subheader("🤑 Calculadora de Aposta (Critério de Kelly)")
-    
-    col_k1, col_k2, col_k3 = st.columns(3)
-    with col_k1:
-        odd_site_h = st.number_input(f"Odd Site ({tc})", 1.0, 20.0, 2.0, step=0.01)
-    with col_k2:
-        odd_site_d = st.number_input(f"Odd Site (Empate)", 1.0, 20.0, 3.0, step=0.01)
-    with col_k3:
-        odd_site_a = st.number_input(f"Odd Site ({tf})", 1.0, 20.0, 4.0, step=0.01)
-        
-    def calcular_kelly(prob_real, odd_site):
-        if odd_site <= 1: return 0
-        b = odd_site - 1
-        q = 1 - prob_real
-        f = (b * prob_real - q) / b
-        return max(f, 0) # Não aceita negativo
-
+    # Kelly do Poisson
     kh = calcular_kelly(ph, odd_site_h) * fracao_kelly
     kd = calcular_kelly(pd_prob, odd_site_d) * fracao_kelly
     ka = calcular_kelly(pa, odd_site_a) * fracao_kelly
     
+    st.caption("💰 Recomendação (Baseada no Histórico):")
     cols_res = st.columns(3)
-    if kh > 0: cols_res[0].success(f"APOSTE R$ {kh*banca_total:.2f} \n({kh*100:.1f}% da Banca)")
+    if kh > 0: cols_res[0].success(f"R$ {kh*banca_total:.2f}")
     else: cols_res[0].error("Sem Valor")
-        
-    if kd > 0: cols_res[1].success(f"APOSTE R$ {kd*banca_total:.2f} \n({kd*100:.1f}% da Banca)")
+    if kd > 0: cols_res[1].success(f"R$ {kd*banca_total:.2f}")
     else: cols_res[1].error("Sem Valor")
-        
-    if ka > 0: cols_res[2].success(f"APOSTE R$ {ka*banca_total:.2f} \n({ka*100:.1f}% da Banca)")
+    if ka > 0: cols_res[2].success(f"R$ {ka*banca_total:.2f}")
     else: cols_res[2].error("Sem Valor")
 
 # ==============================================================================
-# ÁREA DA INTELIGÊNCIA ARTIFICIAL (AGORA COMPLETA)
+# IA + KELLY DE MOMENTUM
 # ==============================================================================
 
+st.write("---")
 with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes)", expanded=True):
-    st.write("Insira as médias dos últimos 5 jogos (Geral) para ver a opinião da IA.")
-    st.info("Dica: Use estatísticas de qualquer campeonato (Estadual, Libertadores) para medir o momento!")
+    st.write("Insira as médias dos últimos 5 jogos.")
     
     col_ia1, col_ia2 = st.columns(2)
     with col_ia1:
@@ -223,18 +219,31 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes)", e
         classes = modelo_ia.classes_
         mapa = {cls: idx for idx, cls in enumerate(classes)}
         
-        p_casa = probs[mapa['H']]
-        p_emp = probs[mapa['D']]
-        p_fora = probs[mapa['A']]
+        # Probabilidades da IA
+        p_ia_h = probs[mapa['H']]
+        p_ia_d = probs[mapa['D']]
+        p_ia_a = probs[mapa['A']]
         
-        st.success(f"🧠 Previsão da IA:")
+        st.markdown("### 🧠 Probabilidades (Momentum/IA)")
+        k_ia1, k_ia2, k_ia3 = st.columns(3)
+        k_ia1.metric(f"Vitória {time_casa}", f"{p_ia_h*100:.1f}%", f"Odd Justa: {1/p_ia_h:.2f}")
+        k_ia2.metric("Empate", f"{p_ia_d*100:.1f}%", f"Odd Justa: {1/p_ia_d:.2f}")
+        k_ia3.metric(f"Vitória {time_fora}", f"{p_ia_a*100:.1f}%", f"Odd Justa: {1/p_ia_a:.2f}")
+
+        # KELLY DA IA (Aqui está a sua solicitação!)
+        kh_ia = calcular_kelly(p_ia_h, odd_site_h) * fracao_kelly
+        kd_ia = calcular_kelly(p_ia_d, odd_site_d) * fracao_kelly
+        ka_ia = calcular_kelly(p_ia_a, odd_site_a) * fracao_kelly
+
+        st.caption("💰 Recomendação (Baseada no Momento Atual):")
+        cols_ia = st.columns(3)
         
-        if p_casa > p_fora and p_casa > p_emp:
-            st.write(f"O modelo aponta favoritismo para o **{time_casa}** ({p_casa*100:.1f}%)")
-        elif p_fora > p_casa and p_fora > p_emp:
-            st.write(f"O modelo aponta favoritismo para o **{time_fora}** ({p_fora*100:.1f}%)")
-        else:
-            st.warning(f"O modelo prevê um jogo muito equilibrado/empate.")
-            
-        st.progress(int(p_casa*100), text=f"Força {time_casa}")
-        st.progress(int(p_fora*100), text=f"Força {time_fora}")
+        # Mostra o valor a apostar pela IA
+        if kh_ia > 0: cols_ia[0].success(f"APOSTE R$ {kh_ia*banca_total:.2f}")
+        else: cols_ia[0].error("Sem Valor")
+        
+        if kd_ia > 0: cols_ia[1].success(f"APOSTE R$ {kd_ia*banca_total:.2f}")
+        else: cols_ia[1].error("Sem Valor")
+        
+        if ka_ia > 0: cols_ia[2].success(f"APOSTE R$ {ka_ia*banca_total:.2f}")
+        else: cols_ia[2].error("Sem Valor")
