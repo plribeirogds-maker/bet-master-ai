@@ -24,7 +24,7 @@ st.write("---")
 @st.cache_data
 def carregar_dados():
     diretorio = os.path.dirname(os.path.abspath(__file__))
-    caminho = os.path.join(diretorio, 'BRA.csv')
+    caminho = os.path.join(diretorio, 'BRASA.csv')
     
     try:
         df = pd.read_csv(caminho, sep=';', decimal=',')
@@ -43,7 +43,7 @@ def carregar_dados():
 df = carregar_dados()
 
 if df is None:
-    st.error("ERRO: O arquivo 'BRA.csv' não foi encontrado na pasta!")
+    st.error("ERRO: O arquivo 'BRASA.csv' não foi encontrado na pasta!")
     st.stop()
 
 @st.cache_resource
@@ -100,7 +100,7 @@ def calcular_kelly(prob_real, odd_site):
 
 with st.sidebar:
     st.header("⚙️ Configurações")
-    metodo_poisson = st.radio("Modelo Matemático", ["Clássico (Multiplicativo)", "Aritmético (Luiz Ramos)"])
+    metodo_poisson = st.radio("Modelo Matemático", ["Clássico (Multiplicativo)", "Aritmético (Ribeiros)"])
     
     st.write("---")
     st.header("💰 Gestão de Banca")
