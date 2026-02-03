@@ -239,15 +239,28 @@ if st.session_state['calculou']:
             k_ia3.metric(f"Vitória {tf}", f"{p_ia_a*100:.1f}%", f"Odd Justa: {1/p_ia_a:.2f}")
 
             # KELLY DA IA (Usando as Odds que você digitou lá em cima)
-            kh_ia = calcular_kelly(p_ia_h, odd_site_h) * fracao_kelly
-            kd_ia = calcular_kelly(p_ia_d, odd_site_d) * fracao_kelly
-            ka_ia = calcular_kelly(p_ia_a, odd_site_a) * fracao_kelly
+            # ... (seu código anterior continua igual) ...
 
-            st.caption("💰 Recomendação (Baseada no Momento Atual):")
-            cols_ia = st.columns(3)
-            
-            # Mostra o valor a apostar pela IA
-            if kh_ia > 0: cols_ia[0].success(f"APOSTE R$ {kh_ia*banca_total:.2f}")
-            else: cols_ia[0].error("Sem Valor")
-            
-            if kd_ia > 0: cols_ia[1].success(f"APOSTE R$ {kd_ia
+        # KELLY DA IA (Usando as Odds que você digitou lá em cima)
+        kh_ia = calcular_kelly(p_ia_h, odd_site_h) * fracao_kelly
+        kd_ia = calcular_kelly(p_ia_d, odd_site_d) * fracao_kelly
+        ka_ia = calcular_kelly(p_ia_a, odd_site_a) * fracao_kelly
+
+        st.caption("💰 Recomendação (Baseada no Momento Atual):")
+        cols_ia = st.columns(3)
+        
+        # Mostra o valor a apostar pela IA
+        if kh_ia > 0: 
+            cols_ia[0].success(f"APOSTE R$ {kh_ia*banca_total:.2f}")
+        else: 
+            cols_ia[0].error("Sem Valor")
+        
+        if kd_ia > 0: 
+            cols_ia[1].success(f"APOSTE R$ {kd_ia*banca_total:.2f}")
+        else: 
+            cols_ia[1].error("Sem Valor")
+        
+        if ka_ia > 0: 
+            cols_ia[2].success(f"APOSTE R$ {ka_ia*banca_total:.2f}")
+        else: 
+            cols_ia[2].error("Sem Valor")
