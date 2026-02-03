@@ -161,14 +161,16 @@ if st.button("CALCULAR ODDS HISTÓRICAS (POISSON) 🎲", type="primary", use_con
             'tc': time_casa, 'tf': time_fora, 'metodo': metodo_poisson
         })
 
-# --- EXIBIÇÃO E CÁLCULO DE VALOR (Só aparece depois de clicar) ---
+# --- EXIBIÇÃO E CÁLCULO DE VALOR ---
+# Variáveis de odds globais para a IA acessar depois
+odd_site_h, odd_site_d, odd_site_a = 0.0, 0.0, 0.0
+
 if st.session_state['calculou']:
     tc, tf = st.session_state['tc'], st.session_state['tf']
     ph, pd_prob, pa = st.session_state['prob_h'], st.session_state['prob_d'], st.session_state['prob_a']
     
     st.subheader(f"📊 Probabilidades Históricas ({st.session_state['metodo']})")
     
-    # Mostra as probabilidades ANTES de pedir as Odds
     c1, c2, c3 = st.columns(3)
     c1.metric(f"Vitória {tc}", f"{ph*100:.1f}%", f"Odd Justa: {1/ph:.2f}")
     c2.metric("Empate", f"{pd_prob*100:.1f}%", f"Odd Justa: {1/pd_prob:.2f}")
@@ -177,7 +179,6 @@ if st.session_state['calculou']:
     st.write("---")
     st.subheader("🤑 Inserir Odds da Bet365 para Gestão de Banca")
     
-    # Inputs de Odds agora ficam AQUI, depois do resultado
     k1, k2, k3 = st.columns(3)
     with k1: odd_site_h = st.number_input(f"Odd Site ({tc})", 1.0, 20.0, 2.0, step=0.01, key='oh')
     with k2: odd_site_d = st.number_input(f"Odd Site (Empate)", 1.0, 20.0, 3.0, step=0.01, key='od')
@@ -191,76 +192,67 @@ if st.session_state['calculou']:
     st.caption("💰 Recomendação (Baseada no Histórico de Toda Temporada):")
     cols_res = st.columns(3)
     
-    # Exibe valores
     if kh > 0: cols_res[0].success(f"APOSTE R$ {kh*banca_total:.2f}")
     else: cols_res[0].error("Sem Valor")
-    
     if kd > 0: cols_res[1].success(f"APOSTE R$ {kd*banca_total:.2f}")
     else: cols_res[1].error("Sem Valor")
-    
     if ka > 0: cols_res[2].success(f"APOSTE R$ {ka*banca_total:.2f}")
     else: cols_res[2].error("Sem Valor")
 
-    # ==============================================================================
-    # IA + KELLY DE MOMENTUM (Integrada com as Odds digitadas acima)
-    # ==============================================================================
-    st.write("---")
-    with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes)", expanded=True):
-        st.write("Insira as médias dos últimos 5 jogos (Geral) para ver o Momentum.")
-        
-        col_ia1, col_ia2 = st.columns(2)
-        with col_ia1:
-            st.markdown(f"**{tc}**")
-            hp = st.number_input("Pontos (Média)", 0.0, 3.0, 1.5, step=0.1, key='hp')
-            hgs = st.number_input("Gols Feitos (Média)", 0.0, 5.0, 1.2, step=0.1, key='hgs')
-            hgc = st.number_input("Gols Sofridos (Média)", 0.0, 5.0, 1.0, step=0.1, key='hgc')
+# ==============================================================================
+# IA + KELLY DE MOMENTUM
+# ==============================================================================
+st.write("---")
+with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes)", expanded=True):
+    st.write("Insira as médias dos últimos 5 jogos (Geral) para ver o Momentum.")
+    
+    col_ia1, col_ia2 = st.columns(2)
+    with col_ia1:
+        st.markdown(f"**{time_casa}**")
+        hp = st.number_input("Pontos (Média)", 0.0, 3.0, 1.5, step=0.1, key='hp')
+        hgs = st.number_input("Gols Feitos (Média)", 0.0, 5.0, 1.2, step=0.1, key='hgs')
+        hgc = st.number_input("Gols Sofridos (Média)", 0.0, 5.0, 1.0, step=0.1, key='hgc')
 
-        with col_ia2:
-            st.markdown(f"**{tf}**")
-            ap = st.number_input("Pontos (Média)", 0.0, 3.0, 1.5, step=0.1, key='ap')
-            ags = st.number_input("Gols Feitos (Média)", 0.0, 5.0, 1.2, step=0.1, key='ags')
-            agc = st.number_input("Gols Sofridos (Média)", 0.0, 5.0, 1.0, step=0.1, key='agc')
+    with col_ia2:
+        st.markdown(f"**{time_fora}**")
+        ap = st.number_input("Pontos (Média)", 0.0, 3.0, 1.5, step=0.1, key='ap')
+        ags = st.number_input("Gols Feitos (Média)", 0.0, 5.0, 1.2, step=0.1, key='ags')
+        agc = st.number_input("Gols Sofridos (Média)", 0.0, 5.0, 1.0, step=0.1, key='agc')
+        
+    if st.button("Consultar o Robô 🤖"):
+        input_data = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
+        probs = modelo_ia.predict_proba(input_data)[0]
+        classes = modelo_ia.classes_
+        mapa = {cls: idx for idx, cls in enumerate(classes)}
+        
+        # Probabilidades da IA
+        p_ia_h = probs[mapa['H']]
+        p_ia_d = probs[mapa['D']]
+        p_ia_a = probs[mapa['A']]
+        
+        st.markdown("### 🧠 Probabilidades (Momentum/IA)")
+        k_ia1, k_ia2, k_ia3 = st.columns(3)
+        k_ia1.metric(f"Vitória {time_casa}", f"{p_ia_h*100:.1f}%", f"Odd Justa: {1/p_ia_h:.2f}")
+        k_ia2.metric("Empate", f"{p_ia_d*100:.1f}%", f"Odd Justa: {1/p_ia_d:.2f}")
+        k_ia3.metric(f"Vitória {time_fora}", f"{p_ia_a*100:.1f}%", f"Odd Justa: {1/p_ia_a:.2f}")
+
+        # VERIFICAÇÃO SE AS ODDS FORAM DIGITADAS (Proteção contra o Erro)
+        if 'odd_site_h' in locals() and odd_site_h > 1.0:
+            # KELLY DA IA
+            kh_ia = calcular_kelly(p_ia_h, odd_site_h) * fracao_kelly
+            kd_ia = calcular_kelly(p_ia_d, odd_site_d) * fracao_kelly
+            ka_ia = calcular_kelly(p_ia_a, odd_site_a) * fracao_kelly
+
+            st.caption("💰 Recomendação (Baseada no Momento Atual):")
+            cols_ia = st.columns(3)
             
-        if st.button("Consultar o Robô 🤖"):
-            input_data = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
-            probs = modelo_ia.predict_proba(input_data)[0]
-            classes = modelo_ia.classes_
-            mapa = {cls: idx for idx, cls in enumerate(classes)}
+            if kh_ia > 0: cols_ia[0].success(f"APOSTE R$ {kh_ia*banca_total:.2f}")
+            else: cols_ia[0].error("Sem Valor")
             
-            # Probabilidades da IA
-            p_ia_h = probs[mapa['H']]
-            p_ia_d = probs[mapa['D']]
-            p_ia_a = probs[mapa['A']]
+            if kd_ia > 0: cols_ia[1].success(f"APOSTE R$ {kd_ia*banca_total:.2f}")
+            else: cols_ia[1].error("Sem Valor")
             
-            st.markdown("### 🧠 Probabilidades (Momentum/IA)")
-            k_ia1, k_ia2, k_ia3 = st.columns(3)
-            k_ia1.metric(f"Vitória {tc}", f"{p_ia_h*100:.1f}%", f"Odd Justa: {1/p_ia_h:.2f}")
-            k_ia2.metric("Empate", f"{p_ia_d*100:.1f}%", f"Odd Justa: {1/p_ia_d:.2f}")
-            k_ia3.metric(f"Vitória {tf}", f"{p_ia_a*100:.1f}%", f"Odd Justa: {1/p_ia_a:.2f}")
-
-            # KELLY DA IA (Usando as Odds que você digitou lá em cima)
-            # ... (seu código anterior continua igual) ...
-
-        # KELLY DA IA (Usando as Odds que você digitou lá em cima)
-        kh_ia = calcular_kelly(p_ia_h, odd_site_h) * fracao_kelly
-        kd_ia = calcular_kelly(p_ia_d, odd_site_d) * fracao_kelly
-        ka_ia = calcular_kelly(p_ia_a, odd_site_a) * fracao_kelly
-
-        st.caption("💰 Recomendação (Baseada no Momento Atual):")
-        cols_ia = st.columns(3)
-        
-        # Mostra o valor a apostar pela IA
-        if kh_ia > 0: 
-            cols_ia[0].success(f"APOSTE R$ {kh_ia*banca_total:.2f}")
-        else: 
-            cols_ia[0].error("Sem Valor")
-        
-        if kd_ia > 0: 
-            cols_ia[1].success(f"APOSTE R$ {kd_ia*banca_total:.2f}")
-        else: 
-            cols_ia[1].error("Sem Valor")
-        
-        if ka_ia > 0: 
-            cols_ia[2].success(f"APOSTE R$ {ka_ia*banca_total:.2f}")
-        else: 
-            cols_ia[2].error("Sem Valor")
+            if ka_ia > 0: cols_ia[2].success(f"APOSTE R$ {ka_ia*banca_total:.2f}")
+            else: cols_ia[2].error("Sem Valor")
+        else:
+            st.info("⚠️ Para ver a recomendação financeira da IA, primeiro **Calcule as Odds Históricas** (botão azul acima) e insira as Odds da Bet365.")
