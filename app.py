@@ -76,14 +76,13 @@ def treinar_ia(df):
                      left_on=['Date', 'AwayTeam'], right_on=['Date', 'Team'], how='left')
     df_ml = df_ml.rename(columns={'L5_Pts': 'A_L5_Pts', 'L5_GS': 'A_L5_GS', 'L5_GC': 'A_L5_GC'}).drop(columns=['Team'])
     
-    df_ml = pd.merge(df_ml, all_games[['Date', 'Team', 'L5_Pts', 'L5_GS', 'L5_GC']], 
-                     left_on=['Date', 'AwayTeam'], right_on=['Date', 'Team'], how='left')
-    df_ml = df_ml.rename(columns={'L5_Pts': 'A_L5_Pts', 'L5_GS': 'A_L5_GS', 'L5_GC': 'A_L5_GC'}).drop(columns=['Team'])
-    
     df_ml = df_ml.dropna()
     
     features = ['H_L5_Pts', 'H_L5_GS', 'H_L5_GC', 'A_L5_Pts', 'A_L5_GS', 'A_L5_GC']
-    X = df_ml[features]
+    
+    # --- CORREÇÃO TÉCNICA PRINCIPAL ---
+    # Convertemos para .values (array puro) para o modelo não viciar nos nomes das colunas
+    X = df_ml[features].values 
     
     # Modelo 1: Quem Ganha (Classifier)
     y_winner = df_ml['FTR']
@@ -97,6 +96,7 @@ def treinar_ia(df):
     
     return modelo_winner, modelo_goals, features
 
+# Treina o modelo (Como mudamos a função, o Streamlit vai recarregar isso automaticamente)
 modelo_winner, modelo_goals, features_ia = treinar_ia(df)
 
 def calcular_kelly(prob_real, odd_site):
@@ -156,7 +156,7 @@ if st.button("CALCULAR ODDS (POISSON) 🎲", type="primary", use_container_width
             ms_casa = home_stats.loc[time_casa, 'FTAG'] if time_casa in home_stats.index else media_gols_fora
             lambda_fora = (mf_fora + ms_casa) / 2
 
-        # CÁLCULO DE PROBABILIDADES COMPLETO (Incluindo BTTS e 3.5)
+        # CÁLCULO DE PROBABILIDADES
         prob_h, prob_d, prob_a = 0, 0, 0
         prob_over_15, prob_over_25, prob_over_35 = 0, 0, 0
         prob_ambas_marcam = 0
@@ -166,21 +166,17 @@ if st.button("CALCULAR ODDS (POISSON) 🎲", type="primary", use_container_width
             for y in range(7):
                 p = poisson.pmf(x, lambda_casa) * poisson.pmf(y, lambda_fora)
                 
-                # Resultado 1x2
                 if x > y: prob_h += p
                 elif x == y: prob_d += p
                 else: prob_a += p
                 
-                # Over/Under
                 total_gols = x + y
                 if total_gols > 1.5: prob_over_15 += p
                 if total_gols > 2.5: prob_over_25 += p
                 if total_gols > 3.5: prob_over_35 += p
                 
-                # Ambas Marcam (BTTS)
                 if x > 0 and y > 0: prob_ambas_marcam += p
                 
-                # Gols Exatos
                 if total_gols >= 4: prob_gols_exatos[4] += p
                 else: prob_gols_exatos[total_gols] += p
         
@@ -193,7 +189,6 @@ if st.button("CALCULAR ODDS (POISSON) 🎲", type="primary", use_container_width
         })
 
 # --- EXIBIÇÃO ---
-# Inicialização de variáveis globais para evitar erro se não calcular
 odd_site_h, odd_site_d, odd_site_a = 0.0, 0.0, 0.0
 odd_site_o15, odd_site_o25 = 0.0, 0.0
 
@@ -207,11 +202,10 @@ if st.session_state['calculou']:
     c2.metric("Empate", f"{pd_prob*100:.1f}%", f"Odd Justa: {1/pd_prob:.2f}")
     c3.metric(f"Vitória {tf}", f"{pa*100:.1f}%", f"Odd Justa: {1/pa:.2f}")
     
-    # --- ÁREA DE GOLS (RESTAURADA E MELHORADA) ---
+    # --- ÁREA DE GOLS (RESTAURADA) ---
     st.write("---")
     st.subheader("⚽ Mercado de Gols (Over/Under)")
     
-    # Abas como você gosta
     tab1, tab2 = st.tabs(["Over / Under", "Gols Exatos & BTTS"])
     
     with tab1:
@@ -234,7 +228,6 @@ if st.session_state['calculou']:
         with col_b2:
             st.markdown("##### 🤝 Ambas Marcam (BTTS)")
             pb = st.session_state['p_btts']
-            # CORREÇÃO AQUI: SyntaxError resolvido fechando as chaves corretamente
             st.metric("Ambas Marcam: SIM", f"{pb*100:.1f}%", f"Odd: {1/pb:.2f}")
             st.metric("Ambas Marcam: NÃO", f"{(1-pb)*100:.1f}%", f"Odd: {1/(1-pb):.2f}")
 
@@ -284,25 +277,23 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
     with og2: odd_site_o25 = st.number_input("Odd Over 2.5", 1.0, 10.0, 1.90, step=0.01)
 
     if st.button("Consultar o Robô 🤖"):
-        # Cria o DataFrame com os dados digitados
-        input_df = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
+        input_data = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
         
-        # --- BLINDAGEM TÉCNICA ---
-        # Converte para array puro para evitar erro de nome de coluna (ValueError)
-        input_data = input_df.values 
+        # --- BLINDAGEM TÉCNICA (ESSENCIAL) ---
+        # Transformamos em array puro antes de enviar para o robô.
+        # Como treinamos com .values, agora DEVEMOS prever com .values também.
+        input_array = input_data.values
         
-        # 1. Previsão de Resultado (Quem ganha)
-        probs_win = modelo_winner.predict_proba(input_data)[0]
+        # 1. Previsão de Resultado
+        probs_win = modelo_winner.predict_proba(input_array)[0]
         classes = modelo_winner.classes_
         mapa = {cls: idx for idx, cls in enumerate(classes)}
         p_ia_h = probs_win[mapa['H']]
         p_ia_d = probs_win[mapa['D']]
         p_ia_a = probs_win[mapa['A']]
         
-        # 2. Previsão de GOLS (A Mágica Nova)
-        lambda_ia = modelo_goals.predict(input_data)[0] 
-        
-        # Calcula prob Over/Under usando o Poisson com a "Lambda da IA"
+        # 2. Previsão de GOLS
+        lambda_ia = modelo_goals.predict(input_array)[0] 
         p_ia_o15 = 1 - poisson.cdf(1, lambda_ia) 
         p_ia_o25 = 1 - poisson.cdf(2, lambda_ia) 
         
@@ -314,6 +305,7 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
         k_ia3.metric(f"Vitória {time_fora}", f"{p_ia_a*100:.1f}%", f"Odd Justa: {1/p_ia_a:.2f}")
 
         # Kelly 1x2 (IA)
+        # Verifica se as odds foram digitadas na parte de cima
         if 'odd_site_h' in locals() and odd_site_h > 1.0:
             kh_ia = calcular_kelly(p_ia_h, odd_site_h) * fracao_kelly
             kd_ia = calcular_kelly(p_ia_d, odd_site_d) * fracao_kelly
@@ -334,13 +326,11 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
         
         kg1, kg2 = st.columns(2)
         
-        # Kelly Over 1.5
         k_o15 = calcular_kelly(p_ia_o15, odd_site_o15) * fracao_kelly
         kg1.metric("Over 1.5 (IA)", f"{p_ia_o15*100:.1f}%", f"Odd Justa: {1/p_ia_o15:.2f}")
         if k_o15 > 0: kg1.success(f"Aposte R$ {k_o15*banca_total:.2f}")
         else: kg1.error("Sem Valor")
         
-        # Kelly Over 2.5
         k_o25 = calcular_kelly(p_ia_o25, odd_site_o25) * fracao_kelly
         kg2.metric("Over 2.5 (IA)", f"{p_ia_o25*100:.1f}%", f"Odd Justa: {1/p_ia_o25:.2f}")
         if k_o25 > 0: kg2.success(f"Aposte R$ {k_o25*banca_total:.2f}")
