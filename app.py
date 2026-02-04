@@ -284,7 +284,12 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
     with og2: odd_site_o25 = st.number_input("Odd Over 2.5", 1.0, 10.0, 1.90, step=0.01)
 
     if st.button("Consultar o Robô 🤖"):
-        input_data = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
+        # Cria o DataFrame com os dados digitados
+        input_df = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
+        
+        # --- BLINDAGEM TÉCNICA ---
+        # Converte para array puro para evitar erro de nome de coluna (ValueError)
+        input_data = input_df.values 
         
         # 1. Previsão de Resultado (Quem ganha)
         probs_win = modelo_winner.predict_proba(input_data)[0]
@@ -295,7 +300,6 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
         p_ia_a = probs_win[mapa['A']]
         
         # 2. Previsão de GOLS (A Mágica Nova)
-        # A IA prevê o "Total de Gols Esperados" baseada no momento
         lambda_ia = modelo_goals.predict(input_data)[0] 
         
         # Calcula prob Over/Under usando o Poisson com a "Lambda da IA"
