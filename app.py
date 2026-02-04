@@ -228,5 +228,3 @@ if st.session_state['calculou']:
             st.write(f"4+ Gols: **{p_ex[4]*100:.1f}%** (Odd {1/p_ex[4]:.2f})")
         with col_b2:
             st.markdown("##### 🤝 Ambas Marcam (BTTS)")
-            pb = st.session_state['p_btts']
-            st.metric("Ambas Marcam: SIM", f"{pb*10
