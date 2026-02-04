@@ -110,7 +110,7 @@ def calcular_kelly(prob_real, odd_site):
 
 with st.sidebar:
     st.header("⚙️ Configurações")
-    metodo_poisson = st.radio("Modelo Matemático", ["Clássico (Multiplicativo)", "Aritmético (Luiz Ramos)"])
+    metodo_poisson = st.radio("Modelo Matemático", ["Clássico (Multiplicativo)", "Comteporâneo (Aritmético)"])
     st.write("---")
     st.header("💰 Gestão de Banca")
     banca_total = st.number_input("Sua Banca Total (R$)", value=1000.0, step=100.0)
