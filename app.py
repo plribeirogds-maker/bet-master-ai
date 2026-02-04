@@ -80,8 +80,7 @@ def treinar_ia(df):
     
     features = ['H_L5_Pts', 'H_L5_GS', 'H_L5_GC', 'A_L5_Pts', 'A_L5_GS', 'A_L5_GC']
     
-    # --- CORREÇÃO TÉCNICA PRINCIPAL ---
-    # Convertemos para .values (array puro) para o modelo não viciar nos nomes das colunas
+    # --- BLINDAGEM TÉCNICA ---
     X = df_ml[features].values 
     
     # Modelo 1: Quem Ganha (Classifier)
@@ -96,7 +95,6 @@ def treinar_ia(df):
     
     return modelo_winner, modelo_goals, features
 
-# Treina o modelo (Como mudamos a função, o Streamlit vai recarregar isso automaticamente)
 modelo_winner, modelo_goals, features_ia = treinar_ia(df)
 
 def calcular_kelly(prob_real, odd_site):
@@ -190,7 +188,7 @@ if st.button("CALCULAR ODDS (POISSON) 🎲", type="primary", use_container_width
 
 # --- EXIBIÇÃO ---
 odd_site_h, odd_site_d, odd_site_a = 0.0, 0.0, 0.0
-odd_site_o15, odd_site_o25 = 0.0, 0.0
+odd_site_o15, odd_site_o25, odd_site_o35 = 0.0, 0.0, 0.0
 
 if st.session_state['calculou']:
     tc, tf = st.session_state['tc'], st.session_state['tf']
@@ -202,7 +200,7 @@ if st.session_state['calculou']:
     c2.metric("Empate", f"{pd_prob*100:.1f}%", f"Odd Justa: {1/pd_prob:.2f}")
     c3.metric(f"Vitória {tf}", f"{pa*100:.1f}%", f"Odd Justa: {1/pa:.2f}")
     
-    # --- ÁREA DE GOLS (RESTAURADA) ---
+    # --- ÁREA DE GOLS (HISTÓRICO) ---
     st.write("---")
     st.subheader("⚽ Mercado de Gols (Over/Under)")
     
@@ -272,16 +270,15 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
         agc = st.number_input("Gols Sofridos (Média)", 0.0, 5.0, 1.0, step=0.1, key='agc')
         
     st.markdown("👇 **Insira Odds de Gols para a IA analisar:**")
-    og1, og2 = st.columns(2)
+    og1, og2, og3 = st.columns(3) # AGORA SÃO 3 COLUNAS
     with og1: odd_site_o15 = st.number_input("Odd Over 1.5", 1.0, 10.0, 1.30, step=0.01)
     with og2: odd_site_o25 = st.number_input("Odd Over 2.5", 1.0, 10.0, 1.90, step=0.01)
+    with og3: odd_site_o35 = st.number_input("Odd Over 3.5", 1.0, 15.0, 3.50, step=0.01) # NOVO CAMPO
 
     if st.button("Consultar o Robô 🤖"):
         input_data = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
         
-        # --- BLINDAGEM TÉCNICA (ESSENCIAL) ---
-        # Transformamos em array puro antes de enviar para o robô.
-        # Como treinamos com .values, agora DEVEMOS prever com .values também.
+        # --- BLINDAGEM TÉCNICA ---
         input_array = input_data.values
         
         # 1. Previsão de Resultado
@@ -295,7 +292,8 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
         # 2. Previsão de GOLS
         lambda_ia = modelo_goals.predict(input_array)[0] 
         p_ia_o15 = 1 - poisson.cdf(1, lambda_ia) 
-        p_ia_o25 = 1 - poisson.cdf(2, lambda_ia) 
+        p_ia_o25 = 1 - poisson.cdf(2, lambda_ia)
+        p_ia_o35 = 1 - poisson.cdf(3, lambda_ia) # NOVA PROBABILIDADE
         
         # --- EXIBIÇÃO RESULTADO ---
         st.markdown("### 🧠 Probabilidades (Momentum/IA)")
@@ -305,7 +303,6 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
         k_ia3.metric(f"Vitória {time_fora}", f"{p_ia_a*100:.1f}%", f"Odd Justa: {1/p_ia_a:.2f}")
 
         # Kelly 1x2 (IA)
-        # Verifica se as odds foram digitadas na parte de cima
         if 'odd_site_h' in locals() and odd_site_h > 1.0:
             kh_ia = calcular_kelly(p_ia_h, odd_site_h) * fracao_kelly
             kd_ia = calcular_kelly(p_ia_d, odd_site_d) * fracao_kelly
@@ -324,14 +321,22 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
         st.write("---")
         st.markdown(f"#### ⚽ Previsão de Gols (IA): {lambda_ia:.2f} gols esperados")
         
-        kg1, kg2 = st.columns(2)
+        kg1, kg2, kg3 = st.columns(3) # AGORA SÃO 3 COLUNAS
         
+        # Kelly Over 1.5
         k_o15 = calcular_kelly(p_ia_o15, odd_site_o15) * fracao_kelly
         kg1.metric("Over 1.5 (IA)", f"{p_ia_o15*100:.1f}%", f"Odd Justa: {1/p_ia_o15:.2f}")
         if k_o15 > 0: kg1.success(f"Aposte R$ {k_o15*banca_total:.2f}")
         else: kg1.error("Sem Valor")
         
+        # Kelly Over 2.5
         k_o25 = calcular_kelly(p_ia_o25, odd_site_o25) * fracao_kelly
         kg2.metric("Over 2.5 (IA)", f"{p_ia_o25*100:.1f}%", f"Odd Justa: {1/p_ia_o25:.2f}")
         if k_o25 > 0: kg2.success(f"Aposte R$ {k_o25*banca_total:.2f}")
         else: kg2.error("Sem Valor")
+
+        # Kelly Over 3.5 (NOVO)
+        k_o35 = calcular_kelly(p_ia_o35, odd_site_o35) * fracao_kelly
+        kg3.metric("Over 3.5 (IA)", f"{p_ia_o35*100:.1f}%", f"Odd Justa: {1/p_ia_o35:.2f}")
+        if k_o35 > 0: kg3.success(f"Aposte R$ {k_o35*banca_total:.2f}")
+        else: kg3.error("Sem Valor")
