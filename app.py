@@ -122,6 +122,7 @@ col1, col2 = st.columns(2)
 with col1: time_casa = st.selectbox("Time da Casa", lista_times, index=0)
 with col2: time_fora = st.selectbox("Time Visitante", lista_times, index=1 if len(lista_times)>1 else 0)
 
+# --- CONTROLE DE ESTADO (POISSON) ---
 if 'calculou' not in st.session_state: st.session_state['calculou'] = False
 
 if st.button("CALCULAR ODDS (POISSON) 🎲", type="primary", use_container_width=True):
@@ -163,18 +164,14 @@ if st.button("CALCULAR ODDS (POISSON) 🎲", type="primary", use_container_width
         for x in range(7):
             for y in range(7):
                 p = poisson.pmf(x, lambda_casa) * poisson.pmf(y, lambda_fora)
-                
                 if x > y: prob_h += p
                 elif x == y: prob_d += p
                 else: prob_a += p
-                
                 total_gols = x + y
                 if total_gols > 1.5: prob_over_15 += p
                 if total_gols > 2.5: prob_over_25 += p
                 if total_gols > 3.5: prob_over_35 += p
-                
                 if x > 0 and y > 0: prob_ambas_marcam += p
-                
                 if total_gols >= 4: prob_gols_exatos[4] += p
                 else: prob_gols_exatos[total_gols] += p
         
@@ -186,9 +183,8 @@ if st.button("CALCULAR ODDS (POISSON) 🎲", type="primary", use_container_width
             'tc': time_casa, 'tf': time_fora, 'metodo': metodo_poisson
         })
 
-# --- EXIBIÇÃO ---
+# --- EXIBIÇÃO (POISSON) ---
 odd_site_h, odd_site_d, odd_site_a = 0.0, 0.0, 0.0
-odd_site_o15, odd_site_o25, odd_site_o35 = 0.0, 0.0, 0.0
 
 if st.session_state['calculou']:
     tc, tf = st.session_state['tc'], st.session_state['tf']
@@ -200,36 +196,31 @@ if st.session_state['calculou']:
     c2.metric("Empate", f"{pd_prob*100:.1f}%", f"Odd Justa: {1/pd_prob:.2f}")
     c3.metric(f"Vitória {tf}", f"{pa*100:.1f}%", f"Odd Justa: {1/pa:.2f}")
     
-    # --- ÁREA DE GOLS (HISTÓRICO) ---
     st.write("---")
     st.subheader("⚽ Mercado de Gols (Over/Under)")
-    
     tab1, tab2 = st.tabs(["Over / Under", "Gols Exatos & BTTS"])
-    
     with tab1:
         mg1, mg2, mg3 = st.columns(3)
         mg1.metric("Over 1.5 Gols", f"{st.session_state['p_over15']*100:.1f}%", f"Odd: {1/st.session_state['p_over15']:.2f}")
         mg2.metric("Over 2.5 Gols", f"{st.session_state['p_over25']*100:.1f}%", f"Odd: {1/st.session_state['p_over25']:.2f}")
         mg3.metric("Over 3.5 Gols", f"{st.session_state['p_over35']*100:.1f}%", f"Odd: {1/st.session_state['p_over35']:.2f}")
         st.caption("Over 1.5 = + de 1 gol no jogo | Over 2.5 = + de 2 gols no jogo.")
-
     with tab2:
         col_b1, col_b2 = st.columns(2)
         with col_b1:
-            st.markdown("##### 🥅 Gols Totais no Jogo")
+            st.markdown("##### 🥅 Gols Totais")
             p_ex = st.session_state['p_gols_exatos']
-            st.write(f"0 Gols: **{p_ex[0]*100:.1f}%** (Odd {1/p_ex[0]:.2f})")
-            st.write(f"1 Gol: **{p_ex[1]*100:.1f}%** (Odd {1/p_ex[1]:.2f})")
-            st.write(f"2 Gols: **{p_ex[2]*100:.1f}%** (Odd {1/p_ex[2]:.2f})")
-            st.write(f"3 Gols: **{p_ex[3]*100:.1f}%** (Odd {1/p_ex[3]:.2f})")
-            st.write(f"4+ Gols: **{p_ex[4]*100:.1f}%** (Odd {1/p_ex[4]:.2f})")
+            st.write(f"0 Gols: **{p_ex[0]*100:.1f}%**")
+            st.write(f"1 Gol: **{p_ex[1]*100:.1f}%**")
+            st.write(f"2 Gols: **{p_ex[2]*100:.1f}%**")
+            st.write(f"3 Gols: **{p_ex[3]*100:.1f}%**")
+            st.write(f"4+ Gols: **{p_ex[4]*100:.1f}%**")
         with col_b2:
-            st.markdown("##### 🤝 Ambas Marcam (BTTS)")
+            st.markdown("##### 🤝 Ambas Marcam")
             pb = st.session_state['p_btts']
-            st.metric("Ambas Marcam: SIM", f"{pb*100:.1f}%", f"Odd: {1/pb:.2f}")
-            st.metric("Ambas Marcam: NÃO", f"{(1-pb)*100:.1f}%", f"Odd: {1/(1-pb):.2f}")
+            st.metric("SIM", f"{pb*100:.1f}%", f"Odd: {1/pb:.2f}")
+            st.metric("NÃO", f"{(1-pb)*100:.1f}%", f"Odd: {1/(1-pb):.2f}")
 
-    # Gestão de Banca 1x2
     st.write("---")
     st.subheader("🤑 Inserir Odds da Bet365 (1x2)")
     k1, k2, k3 = st.columns(3)
@@ -250,12 +241,16 @@ if st.session_state['calculou']:
     else: cols_res[2].error("Sem Valor")
 
 # ==============================================================================
-# IA + KELLY DE MOMENTUM (COM GOLS!)
+# IA + KELLY DE MOMENTUM (COM GOLS E MEMÓRIA DE ESTADO)
 # ==============================================================================
 st.write("---")
 with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Gols)", expanded=True):
-    st.write("Insira as médias dos últimos 5 jogos (Geral).")
     
+    # CONTROLE DE ESTADO DA IA (NOV0!)
+    if 'ia_calculou' not in st.session_state:
+        st.session_state.update({'ia_calculou': False, 'p_ia_h': 0, 'p_ia_d': 0, 'p_ia_a': 0, 
+                                 'lambda_ia': 0, 'p_ia_o15': 0, 'p_ia_o25': 0, 'p_ia_o35': 0})
+
     col_ia1, col_ia2 = st.columns(2)
     with col_ia1:
         st.markdown(f"**{time_casa}**")
@@ -270,39 +265,52 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
         agc = st.number_input("Gols Sofridos (Média)", 0.0, 5.0, 1.0, step=0.1, key='agc')
         
     st.markdown("👇 **Insira Odds de Gols para a IA analisar:**")
-    og1, og2, og3 = st.columns(3) # AGORA SÃO 3 COLUNAS
-    with og1: odd_site_o15 = st.number_input("Odd Over 1.5", 1.0, 10.0, 1.30, step=0.01)
-    with og2: odd_site_o25 = st.number_input("Odd Over 2.5", 1.0, 10.0, 1.90, step=0.01)
-    with og3: odd_site_o35 = st.number_input("Odd Over 3.5", 1.0, 15.0, 3.50, step=0.01) # NOVO CAMPO
+    og1, og2, og3 = st.columns(3)
+    with og1: odd_site_o15 = st.number_input("Odd Over 1.5", 1.0, 10.0, 1.30, step=0.01, key='o_o15')
+    with og2: odd_site_o25 = st.number_input("Odd Over 2.5", 1.0, 10.0, 1.90, step=0.01, key='o_o25')
+    with og3: odd_site_o35 = st.number_input("Odd Over 3.5", 1.0, 15.0, 3.50, step=0.01, key='o_o35')
 
+    # O Botão agora só atualiza o estado
     if st.button("Consultar o Robô 🤖"):
         input_data = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
-        
-        # --- BLINDAGEM TÉCNICA ---
         input_array = input_data.values
         
         # 1. Previsão de Resultado
         probs_win = modelo_winner.predict_proba(input_array)[0]
         classes = modelo_winner.classes_
         mapa = {cls: idx for idx, cls in enumerate(classes)}
-        p_ia_h = probs_win[mapa['H']]
-        p_ia_d = probs_win[mapa['D']]
-        p_ia_a = probs_win[mapa['A']]
         
         # 2. Previsão de GOLS
         lambda_ia = modelo_goals.predict(input_array)[0] 
-        p_ia_o15 = 1 - poisson.cdf(1, lambda_ia) 
-        p_ia_o25 = 1 - poisson.cdf(2, lambda_ia)
-        p_ia_o35 = 1 - poisson.cdf(3, lambda_ia) # NOVA PROBABILIDADE
         
-        # --- EXIBIÇÃO RESULTADO ---
+        st.session_state.update({
+            'ia_calculou': True,
+            'p_ia_h': probs_win[mapa['H']],
+            'p_ia_d': probs_win[mapa['D']],
+            'p_ia_a': probs_win[mapa['A']],
+            'lambda_ia': lambda_ia,
+            'p_ia_o15': 1 - poisson.cdf(1, lambda_ia),
+            'p_ia_o25': 1 - poisson.cdf(2, lambda_ia),
+            'p_ia_o35': 1 - poisson.cdf(3, lambda_ia)
+        })
+
+    # EXIBIÇÃO PERSISTENTE (FORA DO BOTÃO)
+    if st.session_state['ia_calculou']:
+        # Recupera valores da memória
+        p_ia_h = st.session_state['p_ia_h']
+        p_ia_d = st.session_state['p_ia_d']
+        p_ia_a = st.session_state['p_ia_a']
+        lambda_ia = st.session_state['lambda_ia']
+        p_ia_o15 = st.session_state['p_ia_o15']
+        p_ia_o25 = st.session_state['p_ia_o25']
+        p_ia_o35 = st.session_state['p_ia_o35']
+        
         st.markdown("### 🧠 Probabilidades (Momentum/IA)")
         k_ia1, k_ia2, k_ia3 = st.columns(3)
         k_ia1.metric(f"Vitória {time_casa}", f"{p_ia_h*100:.1f}%", f"Odd Justa: {1/p_ia_h:.2f}")
         k_ia2.metric("Empate", f"{p_ia_d*100:.1f}%", f"Odd Justa: {1/p_ia_d:.2f}")
         k_ia3.metric(f"Vitória {time_fora}", f"{p_ia_a*100:.1f}%", f"Odd Justa: {1/p_ia_a:.2f}")
 
-        # Kelly 1x2 (IA)
         if 'odd_site_h' in locals() and odd_site_h > 1.0:
             kh_ia = calcular_kelly(p_ia_h, odd_site_h) * fracao_kelly
             kd_ia = calcular_kelly(p_ia_d, odd_site_d) * fracao_kelly
@@ -317,26 +325,23 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
             if ka_ia > 0: cols_ia[2].success(f"R$ {ka_ia*banca_total:.2f}")
             else: cols_ia[2].error("Sem Valor")
         
-        # --- EXIBIÇÃO GOLS (IA) ---
         st.write("---")
         st.markdown(f"#### ⚽ Previsão de Gols (IA): {lambda_ia:.2f} gols esperados")
         
-        kg1, kg2, kg3 = st.columns(3) # AGORA SÃO 3 COLUNAS
+        kg1, kg2, kg3 = st.columns(3)
         
-        # Kelly Over 1.5
+        # Como está FORA do botão, ele lê os inputs 'odd_site_o15' em tempo real!
         k_o15 = calcular_kelly(p_ia_o15, odd_site_o15) * fracao_kelly
         kg1.metric("Over 1.5 (IA)", f"{p_ia_o15*100:.1f}%", f"Odd Justa: {1/p_ia_o15:.2f}")
-        if k_o15 > 0: kg1.success(f"Aposte R$ {k_o15*banca_total:.2f}")
+        if k_o15 > 0: kg1.success(f"R$ {k_o15*banca_total:.2f}")
         else: kg1.error("Sem Valor")
         
-        # Kelly Over 2.5
         k_o25 = calcular_kelly(p_ia_o25, odd_site_o25) * fracao_kelly
         kg2.metric("Over 2.5 (IA)", f"{p_ia_o25*100:.1f}%", f"Odd Justa: {1/p_ia_o25:.2f}")
-        if k_o25 > 0: kg2.success(f"Aposte R$ {k_o25*banca_total:.2f}")
+        if k_o25 > 0: kg2.success(f"R$ {k_o25*banca_total:.2f}")
         else: kg2.error("Sem Valor")
 
-        # Kelly Over 3.5 (NOVO)
         k_o35 = calcular_kelly(p_ia_o35, odd_site_o35) * fracao_kelly
         kg3.metric("Over 3.5 (IA)", f"{p_ia_o35*100:.1f}%", f"Odd Justa: {1/p_ia_o35:.2f}")
-        if k_o35 > 0: kg3.success(f"Aposte R$ {k_o35*banca_total:.2f}")
+        if k_o35 > 0: kg3.success(f"R$ {k_o35*banca_total:.2f}")
         else: kg3.error("Sem Valor")
