@@ -76,6 +76,10 @@ def treinar_ia(df):
                      left_on=['Date', 'AwayTeam'], right_on=['Date', 'Team'], how='left')
     df_ml = df_ml.rename(columns={'L5_Pts': 'A_L5_Pts', 'L5_GS': 'A_L5_GS', 'L5_GC': 'A_L5_GC'}).drop(columns=['Team'])
     
+    df_ml = pd.merge(df_ml, all_games[['Date', 'Team', 'L5_Pts', 'L5_GS', 'L5_GC']], 
+                     left_on=['Date', 'AwayTeam'], right_on=['Date', 'Team'], how='left')
+    df_ml = df_ml.rename(columns={'L5_Pts': 'A_L5_Pts', 'L5_GS': 'A_L5_GS', 'L5_GC': 'A_L5_GC'}).drop(columns=['Team'])
+    
     df_ml = df_ml.dropna()
     
     features = ['H_L5_Pts', 'H_L5_GS', 'H_L5_GC', 'A_L5_Pts', 'A_L5_GS', 'A_L5_GC']
@@ -189,6 +193,7 @@ if st.button("CALCULAR ODDS (POISSON) 🎲", type="primary", use_container_width
         })
 
 # --- EXIBIÇÃO ---
+# Inicialização de variáveis globais para evitar erro se não calcular
 odd_site_h, odd_site_d, odd_site_a = 0.0, 0.0, 0.0
 odd_site_o15, odd_site_o25 = 0.0, 0.0
 
@@ -228,3 +233,111 @@ if st.session_state['calculou']:
             st.write(f"4+ Gols: **{p_ex[4]*100:.1f}%** (Odd {1/p_ex[4]:.2f})")
         with col_b2:
             st.markdown("##### 🤝 Ambas Marcam (BTTS)")
+            pb = st.session_state['p_btts']
+            # CORREÇÃO AQUI: SyntaxError resolvido fechando as chaves corretamente
+            st.metric("Ambas Marcam: SIM", f"{pb*100:.1f}%", f"Odd: {1/pb:.2f}")
+            st.metric("Ambas Marcam: NÃO", f"{(1-pb)*100:.1f}%", f"Odd: {1/(1-pb):.2f}")
+
+    # Gestão de Banca 1x2
+    st.write("---")
+    st.subheader("🤑 Inserir Odds da Bet365 (1x2)")
+    k1, k2, k3 = st.columns(3)
+    with k1: odd_site_h = st.number_input(f"Odd Site ({tc})", 1.0, 20.0, 2.0, step=0.01, key='oh')
+    with k2: odd_site_d = st.number_input(f"Odd Site (Empate)", 1.0, 20.0, 3.0, step=0.01, key='od')
+    with k3: odd_site_a = st.number_input(f"Odd Site ({tf})", 1.0, 20.0, 4.0, step=0.01, key='oa')
+    
+    kh = calcular_kelly(ph, odd_site_h) * fracao_kelly
+    kd = calcular_kelly(pd_prob, odd_site_d) * fracao_kelly
+    ka = calcular_kelly(pa, odd_site_a) * fracao_kelly
+    
+    cols_res = st.columns(3)
+    if kh > 0: cols_res[0].success(f"APOSTE R$ {kh*banca_total:.2f}")
+    else: cols_res[0].error("Sem Valor")
+    if kd > 0: cols_res[1].success(f"APOSTE R$ {kd*banca_total:.2f}")
+    else: cols_res[1].error("Sem Valor")
+    if ka > 0: cols_res[2].success(f"APOSTE R$ {ka*banca_total:.2f}")
+    else: cols_res[2].error("Sem Valor")
+
+# ==============================================================================
+# IA + KELLY DE MOMENTUM (COM GOLS!)
+# ==============================================================================
+st.write("---")
+with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Gols)", expanded=True):
+    st.write("Insira as médias dos últimos 5 jogos (Geral).")
+    
+    col_ia1, col_ia2 = st.columns(2)
+    with col_ia1:
+        st.markdown(f"**{time_casa}**")
+        hp = st.number_input("Pontos (Média)", 0.0, 3.0, 1.5, step=0.1, key='hp')
+        hgs = st.number_input("Gols Feitos (Média)", 0.0, 5.0, 1.2, step=0.1, key='hgs')
+        hgc = st.number_input("Gols Sofridos (Média)", 0.0, 5.0, 1.0, step=0.1, key='hgc')
+
+    with col_ia2:
+        st.markdown(f"**{time_fora}**")
+        ap = st.number_input("Pontos (Média)", 0.0, 3.0, 1.5, step=0.1, key='ap')
+        ags = st.number_input("Gols Feitos (Média)", 0.0, 5.0, 1.2, step=0.1, key='ags')
+        agc = st.number_input("Gols Sofridos (Média)", 0.0, 5.0, 1.0, step=0.1, key='agc')
+        
+    st.markdown("👇 **Insira Odds de Gols para a IA analisar:**")
+    og1, og2 = st.columns(2)
+    with og1: odd_site_o15 = st.number_input("Odd Over 1.5", 1.0, 10.0, 1.30, step=0.01)
+    with og2: odd_site_o25 = st.number_input("Odd Over 2.5", 1.0, 10.0, 1.90, step=0.01)
+
+    if st.button("Consultar o Robô 🤖"):
+        input_data = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
+        
+        # 1. Previsão de Resultado (Quem ganha)
+        probs_win = modelo_winner.predict_proba(input_data)[0]
+        classes = modelo_winner.classes_
+        mapa = {cls: idx for idx, cls in enumerate(classes)}
+        p_ia_h = probs_win[mapa['H']]
+        p_ia_d = probs_win[mapa['D']]
+        p_ia_a = probs_win[mapa['A']]
+        
+        # 2. Previsão de GOLS (A Mágica Nova)
+        # A IA prevê o "Total de Gols Esperados" baseada no momento
+        lambda_ia = modelo_goals.predict(input_data)[0] 
+        
+        # Calcula prob Over/Under usando o Poisson com a "Lambda da IA"
+        p_ia_o15 = 1 - poisson.cdf(1, lambda_ia) 
+        p_ia_o25 = 1 - poisson.cdf(2, lambda_ia) 
+        
+        # --- EXIBIÇÃO RESULTADO ---
+        st.markdown("### 🧠 Probabilidades (Momentum/IA)")
+        k_ia1, k_ia2, k_ia3 = st.columns(3)
+        k_ia1.metric(f"Vitória {time_casa}", f"{p_ia_h*100:.1f}%", f"Odd Justa: {1/p_ia_h:.2f}")
+        k_ia2.metric("Empate", f"{p_ia_d*100:.1f}%", f"Odd Justa: {1/p_ia_d:.2f}")
+        k_ia3.metric(f"Vitória {time_fora}", f"{p_ia_a*100:.1f}%", f"Odd Justa: {1/p_ia_a:.2f}")
+
+        # Kelly 1x2 (IA)
+        if 'odd_site_h' in locals() and odd_site_h > 1.0:
+            kh_ia = calcular_kelly(p_ia_h, odd_site_h) * fracao_kelly
+            kd_ia = calcular_kelly(p_ia_d, odd_site_d) * fracao_kelly
+            ka_ia = calcular_kelly(p_ia_a, odd_site_a) * fracao_kelly
+
+            st.caption("💰 Recomendação Vencedor (Momentum):")
+            cols_ia = st.columns(3)
+            if kh_ia > 0: cols_ia[0].success(f"R$ {kh_ia*banca_total:.2f}")
+            else: cols_ia[0].error("Sem Valor")
+            if kd_ia > 0: cols_ia[1].success(f"R$ {kd_ia*banca_total:.2f}")
+            else: cols_ia[1].error("Sem Valor")
+            if ka_ia > 0: cols_ia[2].success(f"R$ {ka_ia*banca_total:.2f}")
+            else: cols_ia[2].error("Sem Valor")
+        
+        # --- EXIBIÇÃO GOLS (IA) ---
+        st.write("---")
+        st.markdown(f"#### ⚽ Previsão de Gols (IA): {lambda_ia:.2f} gols esperados")
+        
+        kg1, kg2 = st.columns(2)
+        
+        # Kelly Over 1.5
+        k_o15 = calcular_kelly(p_ia_o15, odd_site_o15) * fracao_kelly
+        kg1.metric("Over 1.5 (IA)", f"{p_ia_o15*100:.1f}%", f"Odd Justa: {1/p_ia_o15:.2f}")
+        if k_o15 > 0: kg1.success(f"Aposte R$ {k_o15*banca_total:.2f}")
+        else: kg1.error("Sem Valor")
+        
+        # Kelly Over 2.5
+        k_o25 = calcular_kelly(p_ia_o25, odd_site_o25) * fracao_kelly
+        kg2.metric("Over 2.5 (IA)", f"{p_ia_o25*100:.1f}%", f"Odd Justa: {1/p_ia_o25:.2f}")
+        if k_o25 > 0: kg2.success(f"Aposte R$ {k_o25*banca_total:.2f}")
+        else: kg2.error("Sem Valor")
