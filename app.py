@@ -18,7 +18,7 @@ st.title("🔮 Bet Master AI - Global")
 st.write("---")
 
 # ==============================================================================
-# SELETOR DE LIGA (NOVIDADE!)
+# SELETOR DE LIGA
 # ==============================================================================
 with st.sidebar:
     st.header("🌍 Escolha o Campeonato")
@@ -36,49 +36,56 @@ with st.sidebar:
 def carregar_dados(liga):
     diretorio = os.path.dirname(os.path.abspath(__file__))
     
-    # Configuração inteligente baseada na escolha
-    if liga == "Brasileirão Série A 🇧🇷":
-        nome_arquivo = 'BRA.csv'
-        separador = ';'
-        decimal_sep = ','
-    else: # Premier League
-        nome_arquivo = 'PremierLeague_Geral.csv'
-        separador = ','
-        decimal_sep = '.'
-        
-    caminho = os.path.join(diretorio, nome_arquivo)
-    
     try:
-        # Carrega com as configurações específicas de cada país
-        df = pd.read_csv(caminho, sep=separador, decimal=decimal_sep)
-        
+        if liga == "Brasileirão Série A 🇧🇷":
+            nome_arquivo = 'BRA.csv'
+            caminho = os.path.join(diretorio, nome_arquivo)
+            # Brasileiro geralmente usa ; e ,
+            df = pd.read_csv(caminho, sep=';', decimal=',')
+            
+        else: # Premier League
+            nome_arquivo = 'PremierLeague_Geral.csv'
+            caminho = os.path.join(diretorio, nome_arquivo)
+            # --- CORREÇÃO DO ERRO AQUI ---
+            # Adicionamos 'on_bad_lines' para pular erros e 'engine' python para ser mais forte
+            try:
+                df = pd.read_csv(caminho, sep=',', decimal='.', on_bad_lines='skip', engine='python')
+            except:
+                # Plano B: Tenta ler com encoding diferente se falhar
+                df = pd.read_csv(caminho, sep=',', decimal='.', encoding='latin-1', on_bad_lines='skip')
+
         # O "Tradutor Universal" de Colunas
-        # Se o arquivo vier com nomes diferentes, nós padronizamos aqui
         mapa_colunas = {
-            'HG': 'FTHG', 'AG': 'FTAG', 'Res': 'FTR', # Nomes do arquivo Brasileiro
-            'Home': 'HomeTeam', 'Away': 'AwayTeam'    # Nomes do arquivo Brasileiro
+            'HG': 'FTHG', 'AG': 'FTAG', 'Res': 'FTR', 
+            'Home': 'HomeTeam', 'Away': 'AwayTeam'
         }
         df = df.rename(columns=mapa_colunas)
         
-        # Limpeza de segurança
+        # Limpeza de segurança (Remove linhas vazias ou cabeçalhos repetidos)
         colunas_vitais = ['FTHG', 'FTAG', 'FTR', 'HomeTeam', 'AwayTeam', 'Date']
+        
+        # Verifica se as colunas existem
         if not all(col in df.columns for col in colunas_vitais):
-            st.error(f"Erro: O arquivo {nome_arquivo} não tem as colunas certas.")
+            st.error(f"⚠️ Erro de Leitura: O arquivo '{nome_arquivo}' não tem as colunas padrão.\nColunas encontradas: {list(df.columns)}")
             return None
             
         df = df.dropna(subset=['FTHG', 'FTAG', 'FTR', 'HomeTeam', 'AwayTeam'])
-        df['Date'] = pd.to_datetime(df['Date'], dayfirst=True)
+        df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce') # 'coerce' evita erro de data mal formatada
+        df = df.dropna(subset=['Date']) # Remove datas que deram erro
         df = df.sort_values('Date')
         return df
         
     except FileNotFoundError:
+        return None
+    except Exception as e:
+        st.error(f"Erro inesperado ao ler o arquivo: {e}")
         return None
 
 # Carrega os dados baseados na seleção do Sidebar
 df = carregar_dados(liga_selecionada)
 
 if df is None:
-    st.error(f"⚠️ ARQUIVO NÃO ENCONTRADO!\n\nVerifique se o arquivo da liga selecionada está na pasta:\n- Para Brasil: 'BRA.csv'\n- Para Inglaterra: 'PremierLeague_Geral.csv'")
+    st.warning(f"⚠️ Aguardando arquivo da {liga_selecionada}...\nCertifique-se que o arquivo .csv está na pasta e com o nome correto.")
     st.stop()
 
 @st.cache_resource
