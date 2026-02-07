@@ -14,42 +14,76 @@ st.set_page_config(
     layout="centered"
 )
 
-st.title("🔮 Bet Master AI")
+st.title("🔮 Bet Master AI - Global")
 st.write("---")
+
+# ==============================================================================
+# SELETOR DE LIGA (NOVIDADE!)
+# ==============================================================================
+with st.sidebar:
+    st.header("🌍 Escolha o Campeonato")
+    liga_selecionada = st.selectbox(
+        "Liga",
+        ["Brasileirão Série A 🇧🇷", "Premier League 🏴󠁧󠁢󠁥󠁮󠁧󠁿"]
+    )
+    st.write("---")
 
 # ==============================================================================
 # CARREGAMENTO E INTELIGÊNCIA (CACHE)
 # ==============================================================================
 
 @st.cache_data
-def carregar_dados():
+def carregar_dados(liga):
     diretorio = os.path.dirname(os.path.abspath(__file__))
-    caminho = os.path.join(diretorio, 'BRA.csv')
+    
+    # Configuração inteligente baseada na escolha
+    if liga == "Brasileirão Série A 🇧🇷":
+        nome_arquivo = 'BRA.csv'
+        separador = ';'
+        decimal_sep = ','
+    else: # Premier League
+        nome_arquivo = 'PremierLeague_Geral.csv'
+        separador = ','
+        decimal_sep = '.'
+        
+    caminho = os.path.join(diretorio, nome_arquivo)
     
     try:
-        df = pd.read_csv(caminho, sep=';', decimal=',')
-        df = df.dropna(subset=['HG', 'AG', 'Res', 'Home', 'Away'])
-        df = df.rename(columns={
-            'HG': 'FTHG', 'AG': 'FTAG', 
-            'Home': 'HomeTeam', 'Away': 'AwayTeam', 
-            'Res': 'FTR'
-        })
+        # Carrega com as configurações específicas de cada país
+        df = pd.read_csv(caminho, sep=separador, decimal=decimal_sep)
+        
+        # O "Tradutor Universal" de Colunas
+        # Se o arquivo vier com nomes diferentes, nós padronizamos aqui
+        mapa_colunas = {
+            'HG': 'FTHG', 'AG': 'FTAG', 'Res': 'FTR', # Nomes do arquivo Brasileiro
+            'Home': 'HomeTeam', 'Away': 'AwayTeam'    # Nomes do arquivo Brasileiro
+        }
+        df = df.rename(columns=mapa_colunas)
+        
+        # Limpeza de segurança
+        colunas_vitais = ['FTHG', 'FTAG', 'FTR', 'HomeTeam', 'AwayTeam', 'Date']
+        if not all(col in df.columns for col in colunas_vitais):
+            st.error(f"Erro: O arquivo {nome_arquivo} não tem as colunas certas.")
+            return None
+            
+        df = df.dropna(subset=['FTHG', 'FTAG', 'FTR', 'HomeTeam', 'AwayTeam'])
         df['Date'] = pd.to_datetime(df['Date'], dayfirst=True)
         df = df.sort_values('Date')
         return df
+        
     except FileNotFoundError:
         return None
 
-df = carregar_dados()
+# Carrega os dados baseados na seleção do Sidebar
+df = carregar_dados(liga_selecionada)
 
 if df is None:
-    st.error("ERRO: O arquivo 'BRA.csv' não foi encontrado na pasta!")
+    st.error(f"⚠️ ARQUIVO NÃO ENCONTRADO!\n\nVerifique se o arquivo da liga selecionada está na pasta:\n- Para Brasil: 'BRA.csv'\n- Para Inglaterra: 'PremierLeague_Geral.csv'")
     st.stop()
 
 @st.cache_resource
 def treinar_ia(df):
     df_ml = df.copy()
-    # Criar target para gols totais
     df_ml['TotalGoals'] = df_ml['FTHG'] + df_ml['FTAG']
     
     df_ml['H_Pts'] = np.where(df_ml['FTR'] == 'H', 3, np.where(df_ml['FTR'] == 'D', 1, 0))
@@ -80,15 +114,12 @@ def treinar_ia(df):
     
     features = ['H_L5_Pts', 'H_L5_GS', 'H_L5_GC', 'A_L5_Pts', 'A_L5_GS', 'A_L5_GC']
     
-    # --- BLINDAGEM TÉCNICA ---
     X = df_ml[features].values 
     
-    # Modelo 1: Quem Ganha (Classifier)
     y_winner = df_ml['FTR']
     modelo_winner = RandomForestClassifier(n_estimators=100, random_state=42)
     modelo_winner.fit(X, y_winner)
     
-    # Modelo 2: Quantos Gols (Regressor)
     y_goals = df_ml['TotalGoals']
     modelo_goals = RandomForestRegressor(n_estimators=100, random_state=42)
     modelo_goals.fit(X, y_goals)
@@ -129,7 +160,6 @@ if st.button("CALCULAR ODDS (POISSON) 🎲", type="primary", use_container_width
     if time_casa == time_fora:
         st.error("Escolha times diferentes!")
     else:
-        # Lógica Poisson
         media_gols_casa = df['FTHG'].mean()
         media_gols_fora = df['FTAG'].mean()
         home_stats = df.groupby('HomeTeam')[['FTHG', 'FTAG']].mean()
@@ -155,7 +185,6 @@ if st.button("CALCULAR ODDS (POISSON) 🎲", type="primary", use_container_width
             ms_casa = home_stats.loc[time_casa, 'FTAG'] if time_casa in home_stats.index else media_gols_fora
             lambda_fora = (mf_fora + ms_casa) / 2
 
-        # CÁLCULO DE PROBABILIDADES
         prob_h, prob_d, prob_a = 0, 0, 0
         prob_over_15, prob_over_25, prob_over_35 = 0, 0, 0
         prob_ambas_marcam = 0
@@ -246,7 +275,7 @@ if st.session_state['calculou']:
 st.write("---")
 with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Gols)", expanded=True):
     
-    # CONTROLE DE ESTADO DA IA (NOV0!)
+    # CONTROLE DE ESTADO DA IA
     if 'ia_calculou' not in st.session_state:
         st.session_state.update({'ia_calculou': False, 'p_ia_h': 0, 'p_ia_d': 0, 'p_ia_a': 0, 
                                  'lambda_ia': 0, 'p_ia_o15': 0, 'p_ia_o25': 0, 'p_ia_o35': 0})
@@ -270,17 +299,14 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
     with og2: odd_site_o25 = st.number_input("Odd Over 2.5", 1.0, 10.0, 1.90, step=0.01, key='o_o25')
     with og3: odd_site_o35 = st.number_input("Odd Over 3.5", 1.0, 15.0, 3.50, step=0.01, key='o_o35')
 
-    # O Botão agora só atualiza o estado
     if st.button("Consultar o Robô 🤖"):
         input_data = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
         input_array = input_data.values
         
-        # 1. Previsão de Resultado
         probs_win = modelo_winner.predict_proba(input_array)[0]
         classes = modelo_winner.classes_
         mapa = {cls: idx for idx, cls in enumerate(classes)}
         
-        # 2. Previsão de GOLS
         lambda_ia = modelo_goals.predict(input_array)[0] 
         
         st.session_state.update({
@@ -294,9 +320,7 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
             'p_ia_o35': 1 - poisson.cdf(3, lambda_ia)
         })
 
-    # EXIBIÇÃO PERSISTENTE (FORA DO BOTÃO)
     if st.session_state['ia_calculou']:
-        # Recupera valores da memória
         p_ia_h = st.session_state['p_ia_h']
         p_ia_d = st.session_state['p_ia_d']
         p_ia_a = st.session_state['p_ia_a']
@@ -330,7 +354,6 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
         
         kg1, kg2, kg3 = st.columns(3)
         
-        # Como está FORA do botão, ele lê os inputs 'odd_site_o15' em tempo real!
         k_o15 = calcular_kelly(p_ia_o15, odd_site_o15) * fracao_kelly
         kg1.metric("Over 1.5 (IA)", f"{p_ia_o15*100:.1f}%", f"Odd Justa: {1/p_ia_o15:.2f}")
         if k_o15 > 0: kg1.success(f"R$ {k_o15*banca_total:.2f}")
