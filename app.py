@@ -40,59 +40,50 @@ def carregar_dados(liga):
         if liga == "Brasileirão Série A 🇧🇷":
             nome_arquivo = 'BRA.csv'
             caminho = os.path.join(diretorio, nome_arquivo)
-            # Brasileiro geralmente usa ; e ,
             df = pd.read_csv(caminho, sep=';', decimal=',')
             
         else: # Premier League
             nome_arquivo = 'PremierLeague_Geral.csv'
             caminho = os.path.join(diretorio, nome_arquivo)
-            # --- CORREÇÃO DO ERRO AQUI ---
-            # Adicionamos 'on_bad_lines' para pular erros e 'engine' python para ser mais forte
             try:
                 df = pd.read_csv(caminho, sep=',', decimal='.', on_bad_lines='skip', engine='python')
             except:
-                # Plano B: Tenta ler com encoding diferente se falhar
                 df = pd.read_csv(caminho, sep=',', decimal='.', encoding='latin-1', on_bad_lines='skip')
 
-        # O "Tradutor Universal" de Colunas
         mapa_colunas = {
             'HG': 'FTHG', 'AG': 'FTAG', 'Res': 'FTR', 
             'Home': 'HomeTeam', 'Away': 'AwayTeam'
         }
         df = df.rename(columns=mapa_colunas)
         
-        # Limpeza de segurança (Remove linhas vazias ou cabeçalhos repetidos)
         colunas_vitais = ['FTHG', 'FTAG', 'FTR', 'HomeTeam', 'AwayTeam', 'Date']
-        
-        # Verifica se as colunas existem
         if not all(col in df.columns for col in colunas_vitais):
-            st.error(f"⚠️ Erro de Leitura: O arquivo '{nome_arquivo}' não tem as colunas padrão.\nColunas encontradas: {list(df.columns)}")
+            st.error(f"⚠️ Erro de Leitura: O arquivo '{nome_arquivo}' não tem as colunas padrão.")
             return None
             
         df = df.dropna(subset=['FTHG', 'FTAG', 'FTR', 'HomeTeam', 'AwayTeam'])
-        df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce') # 'coerce' evita erro de data mal formatada
-        df = df.dropna(subset=['Date']) # Remove datas que deram erro
+        df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
+        df = df.dropna(subset=['Date'])
         df = df.sort_values('Date')
         return df
         
     except FileNotFoundError:
         return None
     except Exception as e:
-        st.error(f"Erro inesperado ao ler o arquivo: {e}")
+        st.error(f"Erro inesperado: {e}")
         return None
 
-# Carrega os dados baseados na seleção do Sidebar
 df = carregar_dados(liga_selecionada)
 
 if df is None:
-    st.warning(f"⚠️ Aguardando arquivo da {liga_selecionada}...\nCertifique-se que o arquivo .csv está na pasta e com o nome correto.")
+    st.warning(f"⚠️ Aguardando arquivo da {liga_selecionada}...")
     st.stop()
 
 @st.cache_resource
 def treinar_ia(df):
     df_ml = df.copy()
-    df_ml['TotalGoals'] = df_ml['FTHG'] + df_ml['FTAG']
     
+    # Pontos para classificação
     df_ml['H_Pts'] = np.where(df_ml['FTR'] == 'H', 3, np.where(df_ml['FTR'] == 'D', 1, 0))
     df_ml['A_Pts'] = np.where(df_ml['FTR'] == 'A', 3, np.where(df_ml['FTR'] == 'D', 1, 0))
     
@@ -120,20 +111,26 @@ def treinar_ia(df):
     df_ml = df_ml.dropna()
     
     features = ['H_L5_Pts', 'H_L5_GS', 'H_L5_GC', 'A_L5_Pts', 'A_L5_GS', 'A_L5_GC']
-    
     X = df_ml[features].values 
     
+    # 1. Modelo Vencedor
     y_winner = df_ml['FTR']
     modelo_winner = RandomForestClassifier(n_estimators=100, random_state=42)
     modelo_winner.fit(X, y_winner)
     
-    y_goals = df_ml['TotalGoals']
-    modelo_goals = RandomForestRegressor(n_estimators=100, random_state=42)
-    modelo_goals.fit(X, y_goals)
-    
-    return modelo_winner, modelo_goals, features
+    # 2. Modelo Gols Casa (Novo!)
+    y_gh = df_ml['FTHG']
+    modelo_gh = RandomForestRegressor(n_estimators=100, random_state=42)
+    modelo_gh.fit(X, y_gh)
 
-modelo_winner, modelo_goals, features_ia = treinar_ia(df)
+    # 3. Modelo Gols Fora (Novo!)
+    y_ga = df_ml['FTAG']
+    modelo_ga = RandomForestRegressor(n_estimators=100, random_state=42)
+    modelo_ga.fit(X, y_ga)
+    
+    return modelo_winner, modelo_gh, modelo_ga, features
+
+modelo_winner, modelo_gh, modelo_ga, features_ia = treinar_ia(df)
 
 def calcular_kelly(prob_real, odd_site):
     if odd_site <= 1: return 0
@@ -148,7 +145,7 @@ def calcular_kelly(prob_real, odd_site):
 
 with st.sidebar:
     st.header("⚙️ Configurações")
-    metodo_poisson = st.radio("Modelo Matemático", ["Clássico (Multiplicativo)", "Comteporâneo (Aritmético)"])
+    metodo_poisson = st.radio("Modelo Matemático", ["Clássico (Multiplicativo)", "Contemporânea (Aritmético)"])
     st.write("---")
     st.header("💰 Gestão de Banca")
     banca_total = st.number_input("Sua Banca Total (R$)", value=1000.0, step=100.0)
@@ -284,8 +281,12 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
     
     # CONTROLE DE ESTADO DA IA
     if 'ia_calculou' not in st.session_state:
-        st.session_state.update({'ia_calculou': False, 'p_ia_h': 0, 'p_ia_d': 0, 'p_ia_a': 0, 
-                                 'lambda_ia': 0, 'p_ia_o15': 0, 'p_ia_o25': 0, 'p_ia_o35': 0})
+        st.session_state.update({
+            'ia_calculou': False, 'p_ia_h': 0, 'p_ia_d': 0, 'p_ia_a': 0, 
+            'l_ia_h': 0, 'l_ia_a': 0, # Lambdas separados
+            'p_ia_o15': 0, 'p_ia_o25': 0, 'p_ia_o35': 0,
+            'p_ia_btts': 0, 'p_ia_exatos': {}
+        })
 
     col_ia1, col_ia2 = st.columns(2)
     with col_ia1:
@@ -310,42 +311,61 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
         input_data = pd.DataFrame([[hp, hgs, hgc, ap, ags, agc]], columns=features_ia)
         input_array = input_data.values
         
+        # 1. Resultado
         probs_win = modelo_winner.predict_proba(input_array)[0]
         classes = modelo_winner.classes_
         mapa = {cls: idx for idx, cls in enumerate(classes)}
         
-        lambda_ia = modelo_goals.predict(input_array)[0] 
+        # 2. Gols (Agora Separados!)
+        l_h = modelo_gh.predict(input_array)[0] # Gols Esperados Casa
+        l_a = modelo_ga.predict(input_array)[0] # Gols Esperados Fora
+        l_total = l_h + l_a
+        
+        # 3. Probabilidades Derivadas (Poisson com base na IA)
+        p_o15 = 1 - poisson.cdf(1, l_total)
+        p_o25 = 1 - poisson.cdf(2, l_total)
+        p_o35 = 1 - poisson.cdf(3, l_total)
+        
+        # BTTS (Chance de Casa > 0  E  Fora > 0)
+        p_btts = (1 - poisson.pmf(0, l_h)) * (1 - poisson.pmf(0, l_a))
+        
+        # Placar Exato (Soma das probabilidades)
+        p_exatos = {
+            0: poisson.pmf(0, l_total),
+            1: poisson.pmf(1, l_total),
+            2: poisson.pmf(2, l_total),
+            3: poisson.pmf(3, l_total),
+            4: 1 - poisson.cdf(3, l_total) # 4+
+        }
         
         st.session_state.update({
             'ia_calculou': True,
             'p_ia_h': probs_win[mapa['H']],
             'p_ia_d': probs_win[mapa['D']],
             'p_ia_a': probs_win[mapa['A']],
-            'lambda_ia': lambda_ia,
-            'p_ia_o15': 1 - poisson.cdf(1, lambda_ia),
-            'p_ia_o25': 1 - poisson.cdf(2, lambda_ia),
-            'p_ia_o35': 1 - poisson.cdf(3, lambda_ia)
+            'l_ia_h': l_h, 'l_ia_a': l_a,
+            'p_ia_o15': p_o15, 'p_ia_o25': p_o25, 'p_ia_o35': p_o35,
+            'p_ia_btts': p_btts, 'p_ia_exatos': p_exatos
         })
 
     if st.session_state['ia_calculou']:
-        p_ia_h = st.session_state['p_ia_h']
-        p_ia_d = st.session_state['p_ia_d']
-        p_ia_a = st.session_state['p_ia_a']
-        lambda_ia = st.session_state['lambda_ia']
-        p_ia_o15 = st.session_state['p_ia_o15']
-        p_ia_o25 = st.session_state['p_ia_o25']
-        p_ia_o35 = st.session_state['p_ia_o35']
+        # Recupera Variáveis
+        ph, pd_prob, pa = st.session_state['p_ia_h'], st.session_state['p_ia_d'], st.session_state['p_ia_a']
+        lh, la = st.session_state['l_ia_h'], st.session_state['l_ia_a']
+        po15, po25, po35 = st.session_state['p_ia_o15'], st.session_state['p_ia_o25'], st.session_state['p_ia_o35']
+        pbtts = st.session_state['p_ia_btts']
+        pex = st.session_state['p_ia_exatos']
         
         st.markdown("### 🧠 Probabilidades (Momentum/IA)")
         k_ia1, k_ia2, k_ia3 = st.columns(3)
-        k_ia1.metric(f"Vitória {time_casa}", f"{p_ia_h*100:.1f}%", f"Odd Justa: {1/p_ia_h:.2f}")
-        k_ia2.metric("Empate", f"{p_ia_d*100:.1f}%", f"Odd Justa: {1/p_ia_d:.2f}")
-        k_ia3.metric(f"Vitória {time_fora}", f"{p_ia_a*100:.1f}%", f"Odd Justa: {1/p_ia_a:.2f}")
+        k_ia1.metric(f"Vitória {time_casa}", f"{ph*100:.1f}%", f"Odd Justa: {1/ph:.2f}")
+        k_ia2.metric("Empate", f"{pd_prob*100:.1f}%", f"Odd Justa: {1/pd_prob:.2f}")
+        k_ia3.metric(f"Vitória {time_fora}", f"{pa*100:.1f}%", f"Odd Justa: {1/pa:.2f}")
 
         if 'odd_site_h' in locals() and odd_site_h > 1.0:
-            kh_ia = calcular_kelly(p_ia_h, odd_site_h) * fracao_kelly
-            kd_ia = calcular_kelly(p_ia_d, odd_site_d) * fracao_kelly
-            ka_ia = calcular_kelly(p_ia_a, odd_site_a) * fracao_kelly
+            kh_ia = calcular_kelly(ph, odd_site_h) * fracao_kelly
+            kd_ia = calcular_kelly(pd_prob, odd_site_d) * fracao_kelly
+            ka_ia = calcular_kelly(pa, odd_site_a) * fracao_kelly
 
             st.caption("💰 Recomendação Vencedor (Momentum):")
             cols_ia = st.columns(3)
@@ -357,21 +377,39 @@ with st.expander("🤖 Refinar com Inteligência Artificial (Dados Recentes + Go
             else: cols_ia[2].error("Sem Valor")
         
         st.write("---")
-        st.markdown(f"#### ⚽ Previsão de Gols (IA): {lambda_ia:.2f} gols esperados")
+        st.markdown(f"#### ⚽ Previsão de Gols (IA): {lh:.2f} x {la:.2f} (Total: {lh+la:.2f})")
         
-        kg1, kg2, kg3 = st.columns(3)
+        # ABAS DA IA (Igualzinho ao Poisson)
+        tab_ia1, tab_ia2 = st.tabs(["Over / Under", "Gols Exatos & BTTS"])
         
-        k_o15 = calcular_kelly(p_ia_o15, odd_site_o15) * fracao_kelly
-        kg1.metric("Over 1.5 (IA)", f"{p_ia_o15*100:.1f}%", f"Odd Justa: {1/p_ia_o15:.2f}")
-        if k_o15 > 0: kg1.success(f"R$ {k_o15*banca_total:.2f}")
-        else: kg1.error("Sem Valor")
-        
-        k_o25 = calcular_kelly(p_ia_o25, odd_site_o25) * fracao_kelly
-        kg2.metric("Over 2.5 (IA)", f"{p_ia_o25*100:.1f}%", f"Odd Justa: {1/p_ia_o25:.2f}")
-        if k_o25 > 0: kg2.success(f"R$ {k_o25*banca_total:.2f}")
-        else: kg2.error("Sem Valor")
+        with tab_ia1:
+            kg1, kg2, kg3 = st.columns(3)
+            
+            k_o15 = calcular_kelly(po15, odd_site_o15) * fracao_kelly
+            kg1.metric("Over 1.5 (IA)", f"{po15*100:.1f}%", f"Odd Justa: {1/po15:.2f}")
+            if k_o15 > 0: kg1.success(f"R$ {k_o15*banca_total:.2f}")
+            else: kg1.error("Sem Valor")
+            
+            k_o25 = calcular_kelly(po25, odd_site_o25) * fracao_kelly
+            kg2.metric("Over 2.5 (IA)", f"{po25*100:.1f}%", f"Odd Justa: {1/po25:.2f}")
+            if k_o25 > 0: kg2.success(f"R$ {k_o25*banca_total:.2f}")
+            else: kg2.error("Sem Valor")
 
-        k_o35 = calcular_kelly(p_ia_o35, odd_site_o35) * fracao_kelly
-        kg3.metric("Over 3.5 (IA)", f"{p_ia_o35*100:.1f}%", f"Odd Justa: {1/p_ia_o35:.2f}")
-        if k_o35 > 0: kg3.success(f"R$ {k_o35*banca_total:.2f}")
-        else: kg3.error("Sem Valor")
+            k_o35 = calcular_kelly(po35, odd_site_o35) * fracao_kelly
+            kg3.metric("Over 3.5 (IA)", f"{po35*100:.1f}%", f"Odd Justa: {1/po35:.2f}")
+            if k_o35 > 0: kg3.success(f"R$ {k_o35*banca_total:.2f}")
+            else: kg3.error("Sem Valor")
+
+        with tab_ia2:
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                st.markdown("##### 🥅 Gols Totais (IA)")
+                st.write(f"0 Gols: **{pex[0]*100:.1f}%**")
+                st.write(f"1 Gol: **{pex[1]*100:.1f}%**")
+                st.write(f"2 Gols: **{pex[2]*100:.1f}%**")
+                st.write(f"3 Gols: **{pex[3]*100:.1f}%**")
+                st.write(f"4+ Gols: **{pex[4]*100:.1f}%**")
+            with col_b2:
+                st.markdown("##### 🤝 Ambas Marcam (IA)")
+                st.metric("SIM", f"{pbtts*100:.1f}%", f"Odd: {1/pbtts:.2f}")
+                st.metric("NÃO", f"{(1-pbtts)*100:.1f}%", f"Odd: {1/(1-pbtts):.2f}")
